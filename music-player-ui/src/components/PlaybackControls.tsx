@@ -1,5 +1,6 @@
 import React from "react";
 import { Play, Pause, SkipBack, SkipForward } from "phosphor-react"; // Premium icon set
+import VolumeControl from "./VolumeControl";
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
@@ -24,7 +25,7 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           disabled={!onPrev}
           type="button"
         >
-          <SkipBack weight="fill" size={22} />
+          <SkipBack weight="thin" size={22} />
         </button>
         <button
           className="control-button play-pause-button"
@@ -33,9 +34,9 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           type="button"
         >
           {isPlaying ? (
-            <Pause weight="fill" size={28} />
+            <Pause weight="regular" size={28} />
           ) : (
-            <Play weight="fill" size={28} />
+            <Play weight="regular" size={28} />
           )}
         </button>
         <button
@@ -45,8 +46,13 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           disabled={!onNext}
           type="button"
         >
-          <SkipForward weight="fill" size={22} />
+          <SkipForward weight="thin" size={22} />
         </button>
+
+        {/* Volume control */}
+        <div className="volume-control-wrapper">
+          <VolumeControl />
+        </div>
       </div>
     </div>
   );

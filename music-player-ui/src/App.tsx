@@ -3,7 +3,6 @@ import "./App.css";
 import NowPlayingDisplay from "./components/NowPlayingDisplay";
 import PlaybackControls from "./components/PlaybackControls";
 import TrackProgress from "./components/TrackProgress";
-import VolumeControl from "./components/VolumeControl";
 import Playlist from "./components/Playlist";
 import { LrcPlayer } from "./components/LrcPlayer";
 
@@ -214,7 +213,6 @@ function App() {
             onNext={handleNext}
             onPrev={handlePrev}
           />
-          <VolumeControl />
 
           {/* Lyrics toggle button for mobile */}
           <button
