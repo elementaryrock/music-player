@@ -641,12 +641,21 @@ code {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 0; /* Remove gap and use margins on buttons instead */
   position: relative; /* For positioning context */
   padding: 5px 0;
   /* Ensure the entire cluster is perfectly centered */
   margin: 0 auto;
-  width: fit-content;
+  width: 100%;
+}
+
+/* Main controls (prev, play/pause, next) as a centered unit */
+.main-controls {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Ensure playback controls stay within container */
@@ -746,7 +755,10 @@ code {
 }
 
 .volume-control-wrapper {
-  margin: 0; /* Remove margin to maintain equal spacing */
+  position: absolute;
+  right: 20px; /* Position at the right side */
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .volume-button {
