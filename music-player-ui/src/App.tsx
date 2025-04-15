@@ -52,6 +52,8 @@ function App() {
   const [isLiked, setIsLiked] = useState(false); // State for like functionality
 
   const audioRef = useRef<HTMLAudioElement>(null);
+  // Use a ref to track the current track to avoid dependency issues
+  const previousTrackRef = useRef<string>("");
 
   // Effect to update time and duration
   useEffect(() => {
@@ -99,16 +101,25 @@ function App() {
 
   // Effect to handle track changes
   useEffect(() => {
-    // When track changes, reset current time and start playing if needed
-    setCurrentTime(0);
-    if (isPlaying && audioRef.current) {
-      // We need to wait for the audio src to update before playing
-      audioRef.current.load();
-      audioRef.current
-        .play()
-        .catch((error) => console.error("Error playing new track:", error));
+    // Only reset and reload when the track itself changes, not when play/pause state changes
+    if (audioRef.current) {
+      // Check if the track has actually changed by comparing audio sources
+      const currentTrackSrc = currentTrack.audioSrc;
+      if (previousTrackRef.current !== currentTrackSrc) {
+        // Track has changed, reset time and reload
+        previousTrackRef.current = currentTrackSrc;
+        setCurrentTime(0);
+        audioRef.current.load();
+
+        // Auto-play if isPlaying is true
+        if (isPlaying) {
+          audioRef.current
+            .play()
+            .catch((error) => console.error("Error playing new track:", error));
+        }
+      }
     }
-  }, [currentTrack, isPlaying]); // Run when currentTrack or isPlaying changes
+  }, [currentTrack, isPlaying]); // Include both dependencies but handle logic inside
 
   const handlePlayPause = () => {
     setIsPlaying(!isPlaying);

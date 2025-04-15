@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { FaVolumeUp, FaVolumeDown, FaVolumeMute } from "react-icons/fa";
+import { SpeakerHigh, SpeakerLow, SpeakerX } from "phosphor-react";
 
 interface VolumeControlProps {
   initialVolume?: number;
@@ -45,11 +45,11 @@ const VolumeControl: React.FC<VolumeControlProps> = ({
   // Determine which volume icon to show
   const getVolumeIcon = () => {
     if (isMuted || volume === 0) {
-      return <FaVolumeMute />;
+      return <SpeakerX weight="fill" size={20} />;
     } else if (volume < 0.5) {
-      return <FaVolumeDown />;
+      return <SpeakerLow weight="fill" size={20} />;
     } else {
-      return <FaVolumeUp />;
+      return <SpeakerHigh weight="fill" size={20} />;
     }
   };
 

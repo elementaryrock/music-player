@@ -1,5 +1,5 @@
 import React from "react";
-import { FaPlay, FaPause, FaStepBackward, FaStepForward } from "react-icons/fa"; // Import icons
+import { Play, Pause, SkipBack, SkipForward } from "phosphor-react"; // Premium icon set
 
 interface PlaybackControlsProps {
   isPlaying: boolean;
@@ -22,23 +22,30 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           onClick={onPrev}
           aria-label="Previous track"
           disabled={!onPrev}
+          type="button"
         >
-          <FaStepBackward />
+          <SkipBack weight="fill" size={22} />
         </button>
         <button
           className="control-button play-pause-button"
           onClick={onPlayPause}
           aria-label={isPlaying ? "Pause" : "Play"}
+          type="button"
         >
-          {isPlaying ? <FaPause /> : <FaPlay />}
+          {isPlaying ? (
+            <Pause weight="fill" size={28} />
+          ) : (
+            <Play weight="fill" size={28} />
+          )}
         </button>
         <button
           className="control-button next-button"
           onClick={onNext}
           aria-label="Next track"
           disabled={!onNext}
+          type="button"
         >
-          <FaStepForward />
+          <SkipForward weight="fill" size={22} />
         </button>
       </div>
     </div>

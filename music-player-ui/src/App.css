@@ -335,12 +335,17 @@ code {
 }
 
 .heart-icon {
-  font-size: 1.2rem;
+  font-size: 1.4rem;
   transition: all 0.3s ease;
+  /* Improve rendering quality */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.1));
 }
 
 .heart-icon.liked {
   color: #ff3a5e;
+  filter: drop-shadow(0 0 3px rgba(255, 58, 94, 0.3));
 }
 
 .track-title {
@@ -459,6 +464,9 @@ code {
   font-size: 16px;
   cursor: pointer;
   transition: background-color 0.2s ease, color 0.2s ease, transform 0.1s ease;
+  /* Enhance icon rendering */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .control-button:hover {
@@ -481,24 +489,40 @@ code {
 .play-pause-button {
   width: 65px;
   height: 65px;
-  background-color: rgba(255, 255, 255, 0.9);
+  background: linear-gradient(
+    145deg,
+    rgba(255, 255, 255, 0.95),
+    rgba(255, 255, 255, 0.85)
+  );
   color: #333;
   font-size: 22px;
   position: relative;
   top: -12px; /* Increased value to move the button further upward */
   transform: translateY(0); /* Reset any transform from parent */
   z-index: 2; /* Ensure button stays on top */
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15),
+    inset 0 1px 1px rgba(255, 255, 255, 0.6); /* Subtle shadow for depth + inner highlight */
+  -webkit-backdrop-filter: blur(5px); /* Safari support */
+  backdrop-filter: blur(5px); /* Subtle blur effect */
 }
 
 .play-pause-button:hover {
-  background-color: #fff;
+  background: linear-gradient(145deg, #fff, rgba(255, 255, 255, 0.9));
   color: #000;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2),
+    inset 0 1px 1px rgba(255, 255, 255, 0.8);
 }
 
 .play-pause-button:active {
-  background-color: #eee;
+  background: linear-gradient(
+    145deg,
+    rgba(240, 240, 240, 0.95),
+    rgba(250, 250, 250, 0.9)
+  );
   color: #000;
   transform: scale(0.95);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1),
+    inset 0 1px 1px rgba(255, 255, 255, 0.6);
 }
 
 /* Volume Control */
@@ -524,6 +548,9 @@ code {
   align-items: center;
   border-radius: 50%;
   transition: all 0.2s ease;
+  /* Enhance icon rendering */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .volume-button:hover {

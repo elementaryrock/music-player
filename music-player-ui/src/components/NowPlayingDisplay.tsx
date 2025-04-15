@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { FaHeart, FaRegHeart } from "react-icons/fa";
+import { Heart } from "phosphor-react";
 
 interface NowPlayingDisplayProps {
   albumArtUrl?: string; // Optional for now
@@ -48,11 +48,11 @@ const NowPlayingDisplay: React.FC<NowPlayingDisplayProps> = ({
           aria-label={isLiked ? "Unlike" : "Like"}
           type="button"
         >
-          {isLiked ? (
-            <FaHeart className="heart-icon liked" />
-          ) : (
-            <FaRegHeart className="heart-icon" />
-          )}
+          <Heart
+            weight={isLiked ? "fill" : "regular"}
+            className={`heart-icon ${isLiked ? "liked" : ""}`}
+            size={24}
+          />
         </button>
       </div>
     </div>
