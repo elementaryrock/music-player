@@ -125,11 +125,11 @@ const VolumeControl: React.FC<VolumeControlProps> = ({
   // Determine which volume icon to show
   const getVolumeIcon = () => {
     if (isMuted || volume === 0) {
-      return <SpeakerX weight="thin" size={20} />;
+      return <SpeakerX weight="thin" size={24} />;
     } else if (volume < 0.5) {
-      return <SpeakerLow weight="thin" size={20} />;
+      return <SpeakerLow weight="thin" size={24} />;
     } else {
-      return <SpeakerHigh weight="thin" size={20} />;
+      return <SpeakerHigh weight="thin" size={24} />;
     }
   };
 

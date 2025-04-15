@@ -25,7 +25,7 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           disabled={!onPrev}
           type="button"
         >
-          <SkipBack weight="thin" size={22} />
+          <SkipBack weight="thin" size={24} />
         </button>
         <button
           className="control-button play-pause-button"
@@ -34,9 +34,9 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           type="button"
         >
           {isPlaying ? (
-            <Pause weight="regular" size={28} />
+            <Pause weight="regular" size={30} />
           ) : (
-            <Play weight="regular" size={28} />
+            <Play weight="regular" size={30} />
           )}
         </button>
         <button
@@ -46,7 +46,7 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
           disabled={!onNext}
           type="button"
         >
-          <SkipForward weight="thin" size={22} />
+          <SkipForward weight="thin" size={24} />
         </button>
 
         {/* Volume control */}
