@@ -197,27 +197,56 @@ code {
 .playlist-container {
   width: 100%;
   max-width: 1200px;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(
+    20,
+    20,
+    20,
+    0.85
+  ); /* Much darker for better contrast */
   -webkit-backdrop-filter: blur(15px) saturate(180%);
   backdrop-filter: blur(15px) saturate(180%);
   border-radius: 15px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.2);
-  padding: 20px;
-  margin: 20px 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+  padding: 25px;
+  margin: 25px 0;
+  position: relative;
+  overflow: hidden;
 }
 
+/* Custom scrollbar for playlist */
 .playlist {
+  max-height: 400px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
   color: white;
+}
+
+.playlist::-webkit-scrollbar {
+  width: 6px;
+}
+
+.playlist::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.playlist::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
 }
 
 .playlist-title {
   margin-top: 0;
-  margin-bottom: 15px;
-  font-size: 1.2rem;
-  font-weight: 600;
+  margin-bottom: 25px;
+  font-size: 1.6rem;
+  font-weight: 700;
   color: #fff;
   text-align: left;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  padding-bottom: 15px;
 }
 
 .playlist-tracks {
@@ -229,46 +258,101 @@ code {
 .playlist-track {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 15px;
+  padding: 14px 15px;
   margin-bottom: 8px;
-  background-color: rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
+  position: relative;
+  /* No background, no border-radius, no glass effect */
+  background-color: transparent;
+  /* Simple separator */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Strong dark background for entire track row for better contrast */
+.playlist-track::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(
+    0,
+    0,
+    0,
+    0.6
+  ); /* Much darker background for better contrast */
+  z-index: -1;
+  opacity: 1;
+  transition: background-color 0.2s ease;
+}
+
+.playlist-track:hover::before {
+  background: rgba(0, 0, 0, 0.7); /* Even darker on hover */
 }
 
 .playlist-track:hover {
-  background-color: rgba(255, 255, 255, 0.2);
+  transform: translateY(-1px);
 }
 
 .playlist-track.active {
-  background-color: rgba(255, 255, 255, 0.25);
-  border-left: 3px solid #fff;
+  border-bottom: none;
+}
+
+.playlist-track.active::before {
+  background: rgba(255, 58, 94, 0.15); /* Red tint but much more subtle */
+  box-shadow: inset 0 0 0 1px rgba(255, 58, 94, 0.3); /* Subtle inner border */
 }
 
 .playlist-track-info {
   flex: 1;
   text-align: left;
+  margin: 0 12px;
+  position: relative;
+  z-index: 1;
 }
 
 .playlist-track-title {
-  font-weight: 500;
-  font-size: 0.95rem;
-  margin-bottom: 4px;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 6px;
+  color: #ffffff; /* Solid white for maximum contrast */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); /* Stronger shadow */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  letter-spacing: 0.01em;
+}
+
+.playlist-track.active .playlist-track-title {
+  color: #ffffff;
+  font-weight: 700;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 .playlist-track-artist {
-  font-size: 0.8rem;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.9rem; /* Slightly larger */
+  color: #ffffff; /* Solid white for maximum contrast */
+  font-weight: 600;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); /* Stronger shadow */
+  letter-spacing: 0.01em;
+}
+
+.playlist-track.active .playlist-track-artist {
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
 .playlist-track-art {
-  width: 40px;
-  height: 40px;
-  margin-left: 15px;
-  border-radius: 4px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
   overflow: hidden;
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  flex-shrink: 0; /* Prevent shrinking */
 }
 
 .playlist-track-art img {
@@ -276,6 +360,24 @@ code {
   height: 100%;
   object-fit: cover;
 }
+
+.now-playing-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff; /* White for better visibility */
+  margin-left: 12px;
+  position: relative;
+  z-index: 1;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+  background-color: rgba(255, 58, 94, 0.9); /* Red background */
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0; /* Prevent shrinking */
+}
+
+/* Removed pulse animation */
 
 /* Now Playing Display */
 .now-playing-display {

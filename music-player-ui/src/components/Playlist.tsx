@@ -1,4 +1,5 @@
 import React from "react";
+import { SpeakerHigh } from "phosphor-react";
 
 interface Track {
   id: number;
@@ -32,13 +33,18 @@ const Playlist: React.FC<PlaylistProps> = ({
             }`}
             onClick={() => onTrackSelect(track.id)}
           >
+            {track.albumArtUrl && (
+              <div className="playlist-track-art">
+                <img src={track.albumArtUrl} alt={`${track.title} album art`} />
+              </div>
+            )}
             <div className="playlist-track-info">
               <div className="playlist-track-title">{track.title}</div>
               <div className="playlist-track-artist">{track.artist}</div>
             </div>
-            {track.albumArtUrl && (
-              <div className="playlist-track-art">
-                <img src={track.albumArtUrl} alt={`${track.title} album art`} />
+            {track.id === currentTrackId && (
+              <div className="now-playing-indicator">
+                <SpeakerHigh weight="fill" size={16} />
               </div>
             )}
           </li>
