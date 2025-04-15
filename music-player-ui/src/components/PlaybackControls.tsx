@@ -15,30 +15,32 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
   onNext,
 }) => {
   return (
-    <div className="playback-controls">
-      <button
-        className="control-button prev-button"
-        onClick={onPrev}
-        aria-label="Previous track"
-        disabled={!onPrev}
-      >
-        <FaStepBackward />
-      </button>
-      <button
-        className="control-button play-pause-button"
-        onClick={onPlayPause}
-        aria-label={isPlaying ? "Pause" : "Play"}
-      >
-        {isPlaying ? <FaPause /> : <FaPlay />}
-      </button>
-      <button
-        className="control-button next-button"
-        onClick={onNext}
-        aria-label="Next track"
-        disabled={!onNext}
-      >
-        <FaStepForward />
-      </button>
+    <div className="playback-controls-container">
+      <div className="playback-controls">
+        <button
+          className="control-button prev-button"
+          onClick={onPrev}
+          aria-label="Previous track"
+          disabled={!onPrev}
+        >
+          <FaStepBackward />
+        </button>
+        <button
+          className="control-button play-pause-button"
+          onClick={onPlayPause}
+          aria-label={isPlaying ? "Pause" : "Play"}
+        >
+          {isPlaying ? <FaPause /> : <FaPlay />}
+        </button>
+        <button
+          className="control-button next-button"
+          onClick={onNext}
+          aria-label="Next track"
+          disabled={!onNext}
+        >
+          <FaStepForward />
+        </button>
+      </div>
     </div>
   );
 };
