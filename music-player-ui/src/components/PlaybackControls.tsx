@@ -35,11 +35,14 @@ const PlaybackControls: React.FC<PlaybackControlsProps> = ({
             aria-label={isPlaying ? "Pause" : "Play"}
             type="button"
           >
-            {isPlaying ? (
-              <Pause weight="regular" size={30} />
-            ) : (
-              <Play weight="regular" size={30} />
-            )}
+            <div className="icon-container">
+              <div className={`play-icon ${!isPlaying ? "visible" : "hidden"}`}>
+                <Play weight="regular" size={30} />
+              </div>
+              <div className={`pause-icon ${isPlaying ? "visible" : "hidden"}`}>
+                <Pause weight="regular" size={30} />
+              </div>
+            </div>
           </button>
           <button
             className="control-button next-button"

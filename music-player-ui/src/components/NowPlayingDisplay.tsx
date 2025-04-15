@@ -49,7 +49,7 @@ const NowPlayingDisplay: React.FC<NowPlayingDisplayProps> = ({
           type="button"
         >
           <Heart
-            weight={isLiked ? "fill" : "thin"}
+            weight={isLiked ? "fill" : "regular"}
             className={`heart-icon ${isLiked ? "liked" : ""}`}
             size={24}
           />
