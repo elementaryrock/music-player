@@ -30,6 +30,7 @@ function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showLyrics, setShowLyrics] = useState(true); // State to toggle lyrics display
+  const [isLiked, setIsLiked] = useState(false); // State for like functionality
 
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -110,6 +111,8 @@ function App() {
             trackTitle={currentTrack.title}
             artistName={currentTrack.artist}
             albumArtUrl={currentTrack.albumArtUrl}
+            initialLiked={isLiked}
+            onLikeToggle={setIsLiked}
           />
           <TrackProgress
             currentTime={currentTime}
@@ -125,7 +128,12 @@ function App() {
           <VolumeControl />
 
           {/* Lyrics toggle button for mobile */}
-          <button className="lyrics-toggle-button" onClick={toggleLyrics}>
+          <button
+            className="lyrics-toggle-button"
+            onClick={toggleLyrics}
+            type="button"
+            aria-label={showLyrics ? "Hide Lyrics" : "Show Lyrics"}
+          >
             {showLyrics ? "Hide Lyrics" : "Show Lyrics"}
           </button>
         </div>
