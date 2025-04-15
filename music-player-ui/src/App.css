@@ -92,7 +92,7 @@ code {
 /* Lyrics Panel */
 .lyrics-panel {
   flex: 1;
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.1); /* Match player container */
   -webkit-backdrop-filter: blur(15px) saturate(180%);
   backdrop-filter: blur(15px) saturate(180%);
   border-radius: 15px;
@@ -115,26 +115,35 @@ code {
 }
 
 .lyrics-title {
-  font-size: 1.8rem;
-  margin-bottom: 20px;
+  font-size: 1.6rem;
+  margin-bottom: 25px;
   text-align: center;
-  font-weight: 500;
+  font-weight: 700;
   color: #fff;
   font-family: "SF Pro", "SF Pro Display", "SF Pro Text", -apple-system,
     BlinkMacSystemFont, sans-serif;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  padding-bottom: 15px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .lyrics-container {
   flex: 1;
   overflow-y: auto;
-  padding: 0 10px;
+  padding: 0 25px; /* Increased padding for better readability */
   /* Custom scrollbar */
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  /* Add padding at the top and bottom for better scrolling experience */
+  padding-top: 25px;
+  padding-bottom: 45px;
 }
 
 .lyrics-container::-webkit-scrollbar {
-  width: 6px;
+  width: 4px; /* Thinner scrollbar */
 }
 
 .lyrics-container::-webkit-scrollbar-track {
@@ -142,34 +151,52 @@ code {
 }
 
 .lyrics-container::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.2); /* More subtle scrollbar */
+  border-radius: 2px;
+  transition: background-color 0.3s ease;
+}
+
+.lyrics-container:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(
+    255,
+    255,
+    255,
+    0.3
+  ); /* Slightly more visible on hover */
 }
 
 .lyric-line {
   font-size: 1.2rem;
-  line-height: 1.6;
-  margin-bottom: 16px;
+  line-height: 1.8; /* Comfortable line height for reading */
+  margin-bottom: 18px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(
+    255,
+    255,
+    255,
+    0.8
+  ); /* Slightly reduced opacity for inactive lines */
   transition: all 0.5s ease-in-out;
   padding: 8px 0;
   font-family: "SF Pro", "SF Pro Display", "SF Pro Text", -apple-system,
     BlinkMacSystemFont, sans-serif;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  font-weight: 400;
-  opacity: 0.5;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); /* Subtle shadow for better contrast */
+  font-weight: 500;
+  position: relative;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .lyric-line.active {
   font-size: 1.4rem;
-  font-weight: 600;
-  color: #fff;
+  font-weight: 700; /* Bolder for active line */
+  color: #ffffff; /* Pure white for active line */
   font-family: "SF Pro", "SF Pro Display", "SF Pro Text", -apple-system,
     BlinkMacSystemFont, sans-serif;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-  opacity: 1;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5); /* Stronger shadow for active line */
   transition: all 0.4s ease-in-out;
+  position: relative;
+  letter-spacing: 0.01em; /* Subtle letter spacing for emphasis */
 }
 
 /* Lyrics Toggle Button (primarily for mobile) */
@@ -719,14 +746,17 @@ code {
 .lrc-container {
   flex: 1;
   overflow-y: auto;
-  padding: 0 10px;
+  padding: 0 25px; /* Increased padding for better readability */
   /* Custom scrollbar */
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  /* Add padding at the top and bottom for better scrolling experience */
+  padding-top: 25px;
+  padding-bottom: 45px;
 }
 
 .lrc-container::-webkit-scrollbar {
-  width: 6px;
+  width: 4px; /* Thinner scrollbar */
 }
 
 .lrc-container::-webkit-scrollbar-track {
@@ -734,34 +764,52 @@ code {
 }
 
 .lrc-container::-webkit-scrollbar-thumb {
-  background-color: rgba(255, 255, 255, 0.3);
-  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.2); /* More subtle scrollbar */
+  border-radius: 2px;
+  transition: background-color 0.3s ease;
+}
+
+.lrc-container:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(
+    255,
+    255,
+    255,
+    0.3
+  ); /* Slightly more visible on hover */
 }
 
 .lrc-line {
   font-size: 1.2rem;
-  line-height: 1.6;
-  margin-bottom: 16px;
+  line-height: 1.8; /* Comfortable line height for reading */
+  margin-bottom: 18px;
   text-align: center;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(
+    255,
+    255,
+    255,
+    0.8
+  ); /* Slightly reduced opacity for inactive lines */
   transition: all 0.5s ease-in-out;
   padding: 8px 0;
   font-family: "SF Pro", "SF Pro Display", "SF Pro Text", -apple-system,
     BlinkMacSystemFont, sans-serif;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  font-weight: 400;
-  opacity: 0.5;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); /* Subtle shadow for better contrast */
+  font-weight: 500;
+  position: relative;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 .lrc-active-line {
   font-size: 1.4rem;
-  font-weight: 600;
-  color: #fff;
+  font-weight: 700; /* Bolder for active line */
+  color: #ffffff; /* Pure white for active line */
   font-family: "SF Pro", "SF Pro Display", "SF Pro Text", -apple-system,
     BlinkMacSystemFont, sans-serif;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-  opacity: 1;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5); /* Stronger shadow for active line */
   transition: all 0.4s ease-in-out;
+  position: relative;
+  letter-spacing: 0.01em; /* Subtle letter spacing for emphasis */
 }
 
 .lyrics-loading,
