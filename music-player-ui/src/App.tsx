@@ -9,6 +9,7 @@ import { LrcPlayer } from "./components/LrcPlayer";
 
 // Define a type for the track
 interface Track {
+  id: number;
   title: string;
   artist: string;
   audioSrc: string;
@@ -17,13 +18,31 @@ interface Track {
 }
 
 function App() {
-  const [currentTrack, setCurrentTrack] = useState<Track>({
-    title: "That's So True",
-    artist: "Gracie Abrams",
-    audioSrc: "/song/song.mp3", // Using a sample MP3 for testing
-    albumArtUrl: "/albumart/albumart_600.jpg", // Using local album art
-    lrcUrl: "/lrc/lyrics.lrc", // LRC file path
-  });
+  // Define playlist with useMemo to avoid re-creating it on every render
+  const playlist = React.useMemo<Track[]>(
+    () => [
+      {
+        id: 1,
+        title: "That's So True",
+        artist: "Gracie Abrams",
+        audioSrc: "/song/song.mp3",
+        albumArtUrl: "/albumart/albumart_600.jpg",
+        lrcUrl: "/lrc/lyrics.lrc",
+      },
+      {
+        id: 2,
+        title: "Golden Hour",
+        artist: "JVKE",
+        audioSrc: "/song/song2.mp3",
+        albumArtUrl: "/albumart/albumart2.jpg",
+        lrcUrl: "/lrc/lyrics2.lrc",
+      },
+    ],
+    []
+  );
+
+  const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
+  const [currentTrack, setCurrentTrack] = useState<Track>(playlist[0]);
 
   // State for player
   const [isPlaying, setIsPlaying] = useState(false);
@@ -41,7 +60,17 @@ function App() {
 
     const updateCurrentTime = () => setCurrentTime(audio.currentTime);
     const setAudioDuration = () => setDuration(audio.duration);
-    const handleTrackEnd = () => setIsPlaying(false); // Stop playing when track ends
+    const handleTrackEnd = () => {
+      // Play the next track when current track ends
+      if (currentTrackIndex < playlist.length - 1) {
+        const nextIndex = currentTrackIndex + 1;
+        setCurrentTrackIndex(nextIndex);
+        setCurrentTrack(playlist[nextIndex]);
+        setIsPlaying(true); // Auto-play the next track
+      } else {
+        setIsPlaying(false); // Stop playing if it's the last track
+      }
+    };
 
     audio.addEventListener("timeupdate", updateCurrentTime);
     audio.addEventListener("loadedmetadata", setAudioDuration);
@@ -53,7 +82,7 @@ function App() {
       audio.removeEventListener("loadedmetadata", setAudioDuration);
       audio.removeEventListener("ended", handleTrackEnd);
     };
-  }, []); // Run only once on mount
+  }, [currentTrackIndex, playlist]); // Run when track index changes
 
   // Effect to handle play/pause based on state
   useEffect(() => {
@@ -68,8 +97,57 @@ function App() {
     }
   }, [isPlaying]); // Run when isPlaying changes
 
+  // Effect to handle track changes
+  useEffect(() => {
+    // When track changes, reset current time and start playing if needed
+    setCurrentTime(0);
+    if (isPlaying && audioRef.current) {
+      // We need to wait for the audio src to update before playing
+      audioRef.current.load();
+      audioRef.current
+        .play()
+        .catch((error) => console.error("Error playing new track:", error));
+    }
+  }, [currentTrack, isPlaying]); // Run when currentTrack or isPlaying changes
+
   const handlePlayPause = () => {
     setIsPlaying(!isPlaying);
+  };
+
+  // Function to handle track selection from playlist
+  const handleTrackSelect = (trackId: number) => {
+    const trackIndex = playlist.findIndex((track) => track.id === trackId);
+    if (trackIndex !== -1) {
+      setCurrentTrackIndex(trackIndex);
+      setCurrentTrack(playlist[trackIndex]);
+      setIsPlaying(true); // Auto-play when selecting a track
+    }
+  };
+
+  // Function to play next track
+  const handleNext = () => {
+    if (currentTrackIndex < playlist.length - 1) {
+      const nextIndex = currentTrackIndex + 1;
+      setCurrentTrackIndex(nextIndex);
+      setCurrentTrack(playlist[nextIndex]);
+      if (isPlaying) {
+        // If already playing, continue playing the next track
+        setIsPlaying(true);
+      }
+    }
+  };
+
+  // Function to play previous track
+  const handlePrev = () => {
+    if (currentTrackIndex > 0) {
+      const prevIndex = currentTrackIndex - 1;
+      setCurrentTrackIndex(prevIndex);
+      setCurrentTrack(playlist[prevIndex]);
+      if (isPlaying) {
+        // If already playing, continue playing the previous track
+        setIsPlaying(true);
+      }
+    }
   };
 
   const handleSeek = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -122,8 +200,8 @@ function App() {
           <PlaybackControls
             isPlaying={isPlaying}
             onPlayPause={handlePlayPause}
-            // onNext={handleNext} // Add later
-            // onPrev={handlePrev} // Add later
+            onNext={handleNext}
+            onPrev={handlePrev}
           />
           <VolumeControl />
 
@@ -148,7 +226,11 @@ function App() {
 
       {/* Playlist area - positioned below in mobile view */}
       <div className="playlist-container">
-        <Playlist />
+        <Playlist
+          tracks={playlist}
+          currentTrackId={currentTrack.id}
+          onTrackSelect={handleTrackSelect}
+        />
       </div>
     </div>
   );
