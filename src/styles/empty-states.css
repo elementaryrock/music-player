@@ -1,0 +1,124 @@
+/* Empty States Styling */
+.empty-player-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 300px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.8);
+  padding: 20px;
+}
+
+.empty-player-message h2 {
+  font-size: 1.5rem;
+  margin-bottom: 10px;
+  color: white;
+}
+
+.empty-player-message p {
+  font-size: 1rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.empty-playlist {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100px;
+  text-align: center;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 20px;
+  font-size: 0.95rem;
+}
+
+/* Loading States */
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: white;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 10px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error States */
+.error-message {
+  background-color: rgba(255, 59, 48, 0.2);
+  border-left: 3px solid rgba(255, 59, 48, 0.8);
+  padding: 12px 15px;
+  margin: 10px auto;
+  color: white;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  max-width: 600px;
+  position: relative;
+}
+
+.error-close-button {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0 5px;
+  line-height: 1;
+}
+
+.error-close-button:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Responsive styles */
+@media (max-width: 768px) {
+  .empty-player-message {
+    height: 200px;
+  }
+
+  .empty-player-message h2 {
+    font-size: 1.3rem;
+  }
+
+  .empty-player-message p {
+    font-size: 0.9rem;
+  }
+
+  .empty-playlist {
+    height: 80px;
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .empty-player-message {
+    height: 180px;
+    padding: 15px;
+  }
+
+  .empty-player-message h2 {
+    font-size: 1.2rem;
+  }
+
+  .empty-playlist {
+    padding: 15px;
+  }
+}

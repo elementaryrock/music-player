@@ -24,13 +24,11 @@ export const LrcPlayer: React.FC<LrcPlayerProps> = ({
     const fetchLrc = async () => {
       try {
         setLoading(true);
-        console.log("Fetching LRC file from:", lrcUrl);
         const response = await fetch(lrcUrl);
         if (!response.ok) {
           throw new Error(`Failed to load LRC file: ${response.status}`);
         }
         const text = await response.text();
-        console.log("Successfully loaded LRC content");
         setLrcContent(text);
         setError(null);
       } catch (err) {
@@ -66,11 +64,11 @@ export const LrcPlayer: React.FC<LrcPlayerProps> = ({
   // This function will be called by the Lrc component
   // We need to use useRef to avoid the setState during render error
   const activeLineIndexRef = useRef<number>(-1);
-
+  
   const handleActiveLineChange = (index: number) => {
     // Store the value in a ref first
     activeLineIndexRef.current = index;
-
+    
     // Then use setTimeout to update the state after render is complete
     setTimeout(() => {
       setActiveLineIndex(activeLineIndexRef.current);
@@ -78,62 +76,39 @@ export const LrcPlayer: React.FC<LrcPlayerProps> = ({
   };
 
   if (loading) {
-    return (
-      <div className="lrc-player">
-        <h3 className="lyrics-title">Lyrics</h3>
-        <div className="lyrics-loading">
-          <p>Loading lyrics...</p>
-        </div>
-      </div>
-    );
+    return <div className="lyrics-loading">Loading lyrics...</div>;
   }
 
   if (error) {
-    return (
-      <div className="lrc-player">
-        <h3 className="lyrics-title">Lyrics</h3>
-        <div className="lyrics-error">
-          <p>{error}</p>
-          <p>Lyrics not available for this track.</p>
-        </div>
-      </div>
-    );
+    return <div className="lyrics-error">{error}</div>;
   }
 
   // Convert seconds to milliseconds for react-lrc
   const currentTimeMs = currentTime * 1000;
 
   return (
-    <div className="lrc-player">
-      <h3 className="lyrics-title">Lyrics</h3>
-      <div className="lrc-container" ref={containerRef}>
+    <div className="lyrics-container" ref={containerRef}>
+      {lrcContent ? (
         <Lrc
           lrc={lrcContent}
-          currentMillisecond={currentTimeMs}
-          lineRenderer={({ active, line, index }) => {
-            // Check if this is the active line and update our state
-            if (active && activeLineIndexRef.current !== index) {
-              // Call the handler directly instead of using onLineChange prop
-              handleActiveLineChange(index);
-            }
-
-            return (
-              <div
-                ref={
-                  active
-                    ? (el) => {
-                        activeLineRef.current = el;
-                      }
-                    : null
-                }
-                className={`lrc-line ${active ? "lrc-active-line" : ""}`}
-              >
-                {line.content}
-              </div>
-            );
-          }}
+          currentTime={currentTimeMs}
+          lineRenderer={({ active, line, index }) => (
+            <div
+              key={line.startMillisecond}
+              className={`lyrics-line ${active ? "active" : ""}`}
+              ref={active ? activeLineRef : null}
+              onClick={() => {
+                handleActiveLineChange(index);
+              }}
+            >
+              {line.content}
+            </div>
+          )}
+          onLineChange={handleActiveLineChange}
         />
-      </div>
+      ) : (
+        <div className="lyrics-empty">No lyrics available</div>
+      )}
     </div>
   );
 };

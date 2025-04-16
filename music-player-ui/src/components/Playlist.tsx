@@ -2,7 +2,7 @@ import React from "react";
 import { SpeakerHigh } from "phosphor-react";
 
 interface Track {
-  id: number;
+  id: number | string;
   title: string;
   artist: string;
   audioSrc: string;
@@ -12,8 +12,8 @@ interface Track {
 
 interface PlaylistProps {
   tracks: Track[];
-  currentTrackId: number;
-  onTrackSelect: (trackId: number) => void;
+  currentTrackId: number | string;
+  onTrackSelect: (trackId: number | string) => void;
 }
 
 const Playlist: React.FC<PlaylistProps> = ({

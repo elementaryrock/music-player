@@ -1,0 +1,40 @@
+.quality-selector {
+  display: flex;
+  align-items: center;
+  margin: 10px 0;
+  justify-content: center;
+  gap: 10px;
+}
+
+.quality-label {
+  font-size: 14px;
+  color: #aaa;
+  margin-right: 5px;
+}
+
+.quality-options {
+  display: flex;
+  gap: 5px;
+}
+
+.quality-option {
+  background-color: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #aaa;
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.quality-option:hover {
+  background-color: rgba(0, 0, 0, 0.5);
+  color: #fff;
+}
+
+.quality-option.active {
+  background-color: #1db954; /* Spotify green */
+  color: #fff;
+  border-color: #1db954;
+}

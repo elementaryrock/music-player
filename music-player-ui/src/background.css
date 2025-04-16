@@ -1,0 +1,29 @@
+/* Background Styles */
+
+.app-background {
+  position: fixed;
+  top: -10px;
+  left: -10px;
+  right: -10px;
+  bottom: -10px;
+  background-size: cover;
+  background-position: center center;
+  filter: blur(40px);
+  z-index: -2;
+  transform: scale(1.05);
+}
+
+/* This class will be added dynamically with JavaScript */
+.dynamic-background {
+  background-image: var(--album-art-url, none);
+}
+
+.background-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.3);
+  z-index: -1;
+}
