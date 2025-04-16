@@ -163,8 +163,8 @@ export const loadSpecificSong = async (
                 // Check for array of objects with url or link properties
                 (Array.isArray(song.downloadUrl) &&
                   song.downloadUrl.length > 0 &&
-                  (song.downloadUrl.some((item) => item && item.url) ||
-                    song.downloadUrl.some((item) => item && item.link))) ||
+                  (song.downloadUrl.some((item: any) => item && item.url) ||
+                    song.downloadUrl.some((item: any) => item && item.link))) ||
                 // Check for object with quality keys
                 (typeof song.downloadUrl === "object" &&
                   song.downloadUrl !== null) ||

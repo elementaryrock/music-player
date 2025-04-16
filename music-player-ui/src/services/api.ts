@@ -99,10 +99,10 @@ export const searchSongs = async (
 
       // If we get here, the API call was successful
       return data.data;
-    } catch (error) {
+    } catch (error: unknown) {
       attemptsLeft--;
 
-      if (error.name === "AbortError") {
+      if (error instanceof Error && error.name === "AbortError") {
         console.error(
           `API request timed out for query: ${query} using ${API_BASE_URL}`
         );
@@ -173,10 +173,10 @@ export const getSongById = async (id: string): Promise<any> => {
 
       // If we get here, the API call was successful
       return data.data;
-    } catch (error) {
+    } catch (error: unknown) {
       attemptsLeft--;
 
-      if (error.name === "AbortError") {
+      if (error instanceof Error && error.name === "AbortError") {
         console.error(
           `API request timed out for song ID: ${id} using ${API_BASE_URL}`
         );
@@ -248,10 +248,10 @@ export const getSongByLink = async (link: string): Promise<any> => {
 
       // If we get here, the API call was successful
       return data.data;
-    } catch (error) {
+    } catch (error: unknown) {
       attemptsLeft--;
 
-      if (error.name === "AbortError") {
+      if (error instanceof Error && error.name === "AbortError") {
         console.error(
           `API request timed out for link: ${link} using ${API_BASE_URL}`
         );

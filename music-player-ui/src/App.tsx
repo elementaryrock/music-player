@@ -38,11 +38,12 @@ function App() {
   const [showLyrics, setShowLyrics] = useState(true); // State to toggle lyrics display
   const [isLiked, setIsLiked] = useState(false); // State for like functionality
   const [currentQuality, setCurrentQuality] = useState("320kbps"); // Default to highest quality
-  const [availableQualities, setAvailableQualities] = useState<string[]>([
+  // Define available qualities as a constant since they don't change
+  const availableQualities = [
     "320kbps", // Highest quality first (default)
     "160kbps",
     "96kbps",
-  ]); // Available quality options
+  ]; // Available quality options
   const [useLocalFiles, setUseLocalFiles] = useState(false); // Use JioSaavn URLs by default
 
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -272,9 +273,9 @@ function App() {
             ];
             for (const quality of qualities) {
               // Use type assertion to avoid TypeScript error
-              // @ts-ignore - We know this is a valid access pattern
+              // @ts-expect-error - We know this is a valid access pattern
               if (songData.downloadUrl[quality]) {
-                // @ts-ignore - We know this is a valid access pattern
+                // @ts-expect-error - We know this is a valid access pattern
                 audioSrc = songData.downloadUrl[quality];
                 break;
               }
@@ -423,9 +424,9 @@ function App() {
               ];
               for (const quality of qualities) {
                 // Use type assertion to avoid TypeScript error
-                // @ts-ignore - We know this is a valid access pattern
+                // @ts-expect-error - We know this is a valid access pattern
                 if (songData.image[quality]) {
-                  // @ts-ignore - We know this is a valid access pattern
+                  // @ts-expect-error - We know this is a valid access pattern
                   albumArtUrl = songData.image[quality];
                   break;
                 }
