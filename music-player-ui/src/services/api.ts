@@ -6,11 +6,9 @@
  */
 
 // Base URL for the JioSaavn API
-// Try multiple API endpoints in case one is down
+// Updated to use the MaanasMS Cloudflare Worker instance (single, high-availability endpoint)
 const API_ENDPOINTS = [
-  "https://saavn.dev/api",
-  "https://jiosaavn-api.vercel.app/api",
-  "https://jiosaavn-api-v3.vercel.app/api",
+  "https://jiosaavn-api.maanasms.workers.dev/api",
 ];
 
 // Start with the first endpoint

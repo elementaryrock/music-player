@@ -9,18 +9,19 @@ import Playlist from "./components/Playlist";
 import { LrcPlayer } from "./components/LrcPlayer";
 import QualitySelector from "./components/QualitySelector";
 import SourceToggle from "./components/SourceToggle";
-// We're using hardcoded data, so we don't need these imports
-// import { loadSpecificSong, loadSongByLink } from "./utils/songLoader";
-// import { generateLrcUrl } from "./utils/lrcGenerator"; // Not needed when using local LRC files
+import SearchBar from "./components/SearchBar";
+import SearchResults from "./components/SearchResults";
+import { searchSongs } from "./services/api";
 
 // Define a type for the track
 interface Track {
-  id: number;
+  id: number | string;
   title: string;
   artist: string;
   audioSrc: string;
   albumArtUrl?: string; // Optional album art
   lrcUrl?: string; // URL to LRC file
+  qualityUrls?: Record<string, string>; // Map of quality->URL from API
 }
 
 function App() {
@@ -45,6 +46,11 @@ function App() {
     "96kbps",
   ]; // Available quality options
   const [useLocalFiles, setUseLocalFiles] = useState(false); // Use JioSaavn URLs by default
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   // Use a ref to track the current track to avoid dependency issues
@@ -661,18 +667,7 @@ function App() {
 
     // Update the current track with the new quality URL
     if (currentTrack) {
-      // Find the URL for the selected quality, maintaining the current source (local or JioSaavn)
-      // Directly use the JioSaavn URL mapping to ensure we get the right quality
-      const jiosaavnMap: Record<string, string> = {
-        "320kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_320.mp4`,
-        "160kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_160.mp4`,
-        "96kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_96.mp4`,
-      };
-
-      // Use the direct mapping if not using local files, otherwise use the getUrlForQuality function
-      const newUrl = !useLocalFiles
-        ? jiosaavnMap[quality]
-        : getUrlForQuality(quality, true);
+      const newUrl = getUrlForQuality(quality);
       console.log(`Quality change: Selected URL for ${quality}: ${newUrl}`);
       if (newUrl) {
         // Create a new track object with the updated URL
@@ -700,48 +695,6 @@ function App() {
         }, 100);
       }
     }
-  };
-
-  // Helper function to get URL for a specific quality
-  const getUrlForQuality = (
-    quality: string = "320kbps", // Default to 320kbps if no quality is specified
-    forceLocalFiles?: boolean
-  ): string => {
-    // Ensure we have a valid quality, defaulting to 320kbps
-    const validQuality = quality || "320kbps";
-
-    // For testing purposes, let's use local files that we know work
-    const localFileMap: Record<string, string> = {
-      "320kbps": "/song/song.mp3",
-      "160kbps": "/song/song.mp3",
-      "96kbps": "/song/song.mp3",
-    };
-
-    // JioSaavn URLs - these might not work due to CORS or other issues
-    const jiosaavnMap: Record<string, string> = {
-      "320kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_320.mp4`,
-      "160kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_160.mp4`,
-      "96kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_96.mp4`,
-    };
-
-    // Determine whether to use local files based on the current state or the forceLocalFiles parameter
-    const shouldUseLocalFiles =
-      forceLocalFiles !== undefined ? forceLocalFiles : useLocalFiles;
-
-    console.log(
-      `Getting URL for quality: ${validQuality}, using ${
-        shouldUseLocalFiles ? "local files" : "JioSaavn URLs"
-      }`
-    );
-
-    // Choose between local files and JioSaavn URLs, always defaulting to 320kbps if the requested quality is not available
-    const url = shouldUseLocalFiles
-      ? localFileMap[validQuality] || localFileMap["320kbps"]
-      : jiosaavnMap[validQuality] || jiosaavnMap["320kbps"];
-
-    console.log(`Selected URL: ${url}`);
-
-    return url;
   };
 
   // Function to handle track selection from playlist
@@ -809,49 +762,145 @@ function App() {
 
     // If we have a current track, update its URL
     if (currentTrack) {
-      // Get the URL for the current quality with the new source
+      const newUrl = getUrlForQuality(currentQuality, newUseLocalFiles);
+      console.log(
+        `Source toggle: Selected URL for ${currentQuality}: ${newUrl}`
+      );
+
+      // Create a new track object with the updated URL
+      const updatedTrack = {
+        ...currentTrack,
+        audioSrc: newUrl,
+      };
+
+      // Update the current track
+      setCurrentTrack(updatedTrack);
+
+      // After the audio element is updated, restore playback position and state
       setTimeout(() => {
-        // Directly use the JioSaavn URL mapping to ensure we get the right quality
-        const jiosaavnMap: Record<string, string> = {
-          "320kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_320.mp4`,
-          "160kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_160.mp4`,
-          "96kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_96.mp4`,
-        };
-
-        // Use the direct mapping if not using local files, otherwise use the getUrlForQuality function
-        const newUrl = !newUseLocalFiles
-          ? jiosaavnMap[currentQuality]
-          : getUrlForQuality(currentQuality, true);
-
-        console.log(
-          `Source toggle: Selected URL for ${currentQuality}: ${newUrl}`
-        );
-
-        // Create a new track object with the updated URL
-        const updatedTrack = {
-          ...currentTrack,
-          audioSrc: newUrl,
-        };
-
-        // Update the current track
-        setCurrentTrack(updatedTrack);
-
-        // After the audio element is updated, restore playback position and state
-        setTimeout(() => {
-          if (audioRef.current) {
-            audioRef.current.currentTime = currentPosition;
-            if (wasPlaying) {
-              audioRef.current.play().catch((error) => {
-                console.error(
-                  "Error playing audio after source change:",
-                  error
-                );
-              });
-            }
+        if (audioRef.current) {
+          audioRef.current.currentTime = currentPosition;
+          if (wasPlaying) {
+            audioRef.current.play().catch((error) => {
+              console.error(
+                "Error playing audio after source change:",
+                error
+              );
+            });
           }
-        }, 100);
-      }, 0);
+        }
+      }, 100);
     }
+  };
+
+  // --- Search handlers ---
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) return;
+    try {
+      setIsSearching(true);
+      const results = await searchSongs(searchQuery.trim());
+      setSearchResults(results?.results || []);
+    } catch (err) {
+      console.error("Search error", err);
+      setError("Failed to search songs");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleResultSelect = (song: any) => {
+    try {
+      const qualityUrls: Record<string, string> = {};
+      if (Array.isArray(song.downloadUrl)) {
+        song.downloadUrl.forEach((item: any) => {
+          const link = item.link || item.url;
+          if (link && item.quality) {
+            qualityUrls[item.quality] = link;
+          }
+        });
+      }
+
+      const audioSrc =
+        qualityUrls["320kbps"] ||
+        qualityUrls["160kbps"] ||
+        qualityUrls["96kbps"] ||
+        song.media_url ||
+        "";
+
+      const albumArtUrl =
+        (Array.isArray(song.image) && song.image.length > 0
+          ? song.image[song.image.length - 1].link || song.image[song.image.length - 1].url
+          : song.imageUrl) || "";
+
+      const newTrack: Track = {
+        id: song.id || Date.now(),
+        title: song.name || "Unknown",
+        artist: song.primaryArtists || "Unknown",
+        audioSrc,
+        albumArtUrl,
+        qualityUrls,
+      };
+
+      setPlaylist([newTrack]);
+      setCurrentTrack(newTrack);
+      setCurrentTrackIndex(0);
+      setCurrentQuality("320kbps");
+      setIsPlaying(true);
+      setSearchResults([]);
+    } catch (err) {
+      console.error("Error loading selected song", err);
+      setError("Failed to load the selected song");
+    }
+  };
+
+  // Helper function to get URL for a specific quality
+  const getUrlForQuality = (
+    quality: string = "320kbps", // Default to 320kbps if no quality is specified
+    forceLocalFiles?: boolean
+  ): string => {
+    // Ensure we have a valid quality, defaulting to 320kbps
+    const validQuality = quality || "320kbps";
+
+    // If using JioSaavn and currentTrack has URLs, prefer them
+    if (!forceLocalFiles && currentTrack?.qualityUrls) {
+      const mapped =
+        currentTrack.qualityUrls[validQuality] ||
+        currentTrack.qualityUrls["320kbps"];
+      if (mapped) return mapped;
+    }
+
+    // For testing purposes, let's use local files that we know work
+    const localFileMap: Record<string, string> = {
+      "320kbps": "/song/song.mp3",
+      "160kbps": "/song/song.mp3",
+      "96kbps": "/song/song.mp3",
+    };
+
+    // JioSaavn URLs - these might not work due to CORS or other issues
+    const jiosaavnMap: Record<string, string> = {
+      "320kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_320.mp4`,
+      "160kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_160.mp4`,
+      "96kbps": `https://aac.saavncdn.com/311/fd020307cf90bf63618aac025d9351d8_96.mp4`,
+    };
+
+    // Determine whether to use local files based on the current state or the forceLocalFiles parameter
+    const shouldUseLocalFiles =
+      forceLocalFiles !== undefined ? forceLocalFiles : useLocalFiles;
+
+    console.log(
+      `Getting URL for quality: ${validQuality}, using ${
+        shouldUseLocalFiles ? "local files" : "JioSaavn URLs"
+      }`
+    );
+
+    // Choose between local files and JioSaavn URLs, always defaulting to 320kbps if the requested quality is not available
+    const url = shouldUseLocalFiles
+      ? localFileMap[validQuality] || localFileMap["320kbps"]
+      : jiosaavnMap[validQuality] || jiosaavnMap["320kbps"];
+
+    console.log(`Selected URL: ${url}`);
+
+    return url;
   };
 
   // Set CSS variable for album art background
@@ -990,6 +1039,15 @@ function App() {
           onTrackSelect={handleTrackSelect}
         />
       </div>
+
+      {/* Search Components */}
+      <SearchBar
+        query={searchQuery}
+        onQueryChange={setSearchQuery}
+        onSearch={handleSearch}
+        isSearching={isSearching}
+      />
+      <SearchResults results={searchResults} onSelect={handleResultSelect} />
     </div>
   );
 }
