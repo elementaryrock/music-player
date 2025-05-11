@@ -832,11 +832,28 @@ function App() {
           ? song.image[song.image.length - 1].link || song.image[song.image.length - 1].url
           : song.imageUrl) || "";
 
+      // Extract artist information from multiple possible fields
+      const artistName = song.primaryArtists || 
+                        song.artist || 
+                        (song.artists && Array.isArray(song.artists) && song.artists.length > 0 ? 
+                          (typeof song.artists[0] === 'string' ? song.artists[0] : 
+                           (song.artists[0].name || '')) : '') || 
+                        (song.featuredArtists || '') || 
+                        "Unknown";
+      
+      console.log("Artist information from search result:", { 
+        primaryArtists: song.primaryArtists,
+        artist: song.artist,
+        artists: song.artists,
+        featuredArtists: song.featuredArtists,
+        selected: artistName
+      });
+      
       // Create the new track without lyrics first
       const newTrack: Track = {
         id: song.id || Date.now(),
         title: song.name || "Unknown",
-        artist: song.primaryArtists || "Unknown",
+        artist: artistName,
         audioSrc,
         albumArtUrl,
         qualityUrls,

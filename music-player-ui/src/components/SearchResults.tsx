@@ -32,7 +32,31 @@ const SearchResults: React.FC<SearchResultsProps> = ({ results, onSelect }) => {
 
   // Function to get artist name from different possible formats
   const getArtistName = (song: any): string => {
-    return song.primaryArtists || song.artist || 'Unknown Artist';
+    // Extract artist information from all possible fields
+    const artistName = song.primaryArtists || 
+                       song.artist || 
+                       (song.artists && Array.isArray(song.artists) && song.artists.length > 0 ? 
+                         (typeof song.artists[0] === 'string' ? song.artists[0] : 
+                          (song.artists[0].name || '')) : '') || 
+                       (song.featuredArtists || '') || 
+                       (song.singers || '');
+    
+    // If we found any artist information, return it
+    if (artistName && artistName.trim() !== '') {
+      return artistName;
+    }
+    
+    // Check for song details that might contain artist info
+    if (song.title || song.label) {
+      // Some songs have format "Song Name - Artist Name"
+      const titleMatch = (song.title || song.name || '').match(/\s+-\s+(.+)$/);
+      if (titleMatch && titleMatch[1]) {
+        return titleMatch[1];
+      }
+    }
+    
+    // If we get here, we couldn't find any artist information
+    return 'Unknown Artist';
   };
 
   return (
