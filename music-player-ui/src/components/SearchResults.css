@@ -2,17 +2,17 @@
 
 .search-results {
   width: 100%;
-  max-width: 1200px;
-  background-color: rgba(20, 20, 20, 0.85);
+  background-color: rgba(20, 20, 20, 0.95);
   backdrop-filter: blur(15px) saturate(180%);
-  border-radius: 15px;
+  border-radius: 0 0 15px 15px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
-  padding: 25px;
-  margin: 25px 0;
+  border-top: none;
+  padding: 20px;
   position: relative;
   overflow: hidden;
   color: white;
+  max-height: 500px;
+  overflow-y: auto;
 }
 
 .search-results-title {

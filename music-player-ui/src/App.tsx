@@ -1065,14 +1065,16 @@ function App() {
         />
       </div>
 
-      {/* Search Components */}
+      {/* Search Component with Floating Dropdown */}
       <SearchBar
         query={searchQuery}
         onQueryChange={setSearchQuery}
         onSearch={handleSearch}
         isSearching={isSearching}
-      />
-      <SearchResults results={searchResults} onSelect={handleResultSelect} />
+        hasResults={searchResults.length > 0}
+      >
+        <SearchResults results={searchResults} onSelect={handleResultSelect} />
+      </SearchBar>
     </div>
   );
 }
