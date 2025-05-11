@@ -51,28 +51,102 @@ export const searchAll = async (query: string): Promise<any> => {
  * @param limit Number of results per page (default: 10)
  * @returns Song search results
  */
+/**
+ * Database of popular artists to help with search matching
+ */
+const POPULAR_ARTISTS = [
+  "Taylor Swift",
+  "Ed Sheeran",
+  "Ariana Grande",
+  "The Weeknd",
+  "Drake",
+  "Beyoncé",
+  "Justin Bieber",
+  "BTS",
+  "Adele",
+  "Billie Eilish",
+  "Lady Gaga",
+  "Bruno Mars",
+  "Rihanna",
+  "Post Malone",
+  "Bad Bunny",
+  "Eminem",
+  "Dua Lipa",
+  "Coldplay",
+  "Maroon 5",
+  "Imagine Dragons",
+  "Katy Perry",
+  "Shawn Mendes",
+  "Travis Scott",
+  "Harry Styles",
+  "Alan Walker",
+  "Marshmello",
+  "Gracie Abrams"
+];
+
+/**
+ * Prepare search query to improve results
+ * @param originalQuery The original search query
+ * @returns An enhanced query for better search results
+ */
+const prepareSearchQuery = (originalQuery: string): string => {
+  // Try to extract artist and song title patterns
+  const byPattern = /(.+)\s+by\s+(.+)/i;
+  const dashPattern = /(.+)\s+-\s+(.+)/i;
+  
+  // Check if the query contains artist information
+  const byMatch = originalQuery.match(byPattern);
+  const dashMatch = originalQuery.match(dashPattern);
+
+  // If we have a match, create an enhanced query that the API understands better
+  if (byMatch) {
+    const [_, songTitle, artist] = byMatch;
+    return `${songTitle.trim()} ${artist.trim()}`;
+  } else if (dashMatch) {
+    const [_, artist, songTitle] = dashMatch;
+    return `${songTitle.trim()} ${artist.trim()}`;
+  }
+  
+  // Check if query matches or contains any popular artist
+  const matchingArtist = POPULAR_ARTISTS.find(artist => {
+    return originalQuery.toLowerCase().includes(artist.toLowerCase());
+  });
+  
+  if (matchingArtist) {
+    // If query contains artist name, return as is - the artist name helps
+    return originalQuery;
+  }
+  
+  // For generic queries without artist info, return original
+  return originalQuery;
+};
+
 export const searchSongs = async (
   query: string,
   page: number = 0,
-  limit: number = 10
+  limit: number = 20 // Increased limit for better results
 ): Promise<any> => {
   // Try each API endpoint until one works
   let attemptsLeft = API_ENDPOINTS.length;
+  const enhancedQuery = prepareSearchQuery(query);
+  
+  console.log(`Original query: "${query}", Enhanced query: "${enhancedQuery}"`);
 
   while (attemptsLeft > 0) {
     try {
       console.log(
-        `Making API request to search for songs: ${query} using ${API_BASE_URL}`
+        `Making API request to search for songs: ${enhancedQuery} using ${API_BASE_URL}`
       );
 
       // Add a timeout to the fetch request
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
+      // Add sort=popularity and language=all parameters for better results
       const response = await fetch(
         `${API_BASE_URL}/search/songs?query=${encodeURIComponent(
-          query
-        )}&page=${page}&limit=${limit}`,
+          enhancedQuery
+        )}&page=${page}&limit=${limit}&sort=popularity&language=all`,
         { signal: controller.signal }
       );
 
@@ -86,7 +160,7 @@ export const searchSongs = async (
 
       const data = await response.json();
       console.log(
-        `API response received for query: ${query} from ${API_BASE_URL}`
+        `API response received for query: ${enhancedQuery} from ${API_BASE_URL}`
       );
 
       // Check if the response has the expected structure
@@ -95,18 +169,41 @@ export const searchSongs = async (
         throw new Error("Unexpected API response structure");
       }
 
-      // If we get here, the API call was successful
-      return data.data;
+      // Process the results to ensure they have all required information
+      const results = data.data.results || [];
+      const processedResults = results.map((song: any) => {
+        // Ensure each song has imageUrl property by checking different possible formats
+        if (!song.imageUrl && song.image) {
+          if (Array.isArray(song.image) && song.image.length > 0) {
+            // Use the highest quality image available (last in array)
+            song.imageUrl = song.image[song.image.length - 1].link || song.image[song.image.length - 1].url;
+          } else if (typeof song.image === 'string') {
+            song.imageUrl = song.image;
+          } else if (typeof song.image === 'object' && song.image !== null) {
+            song.imageUrl = song.image.link || song.image.url;
+          }
+        }
+
+        // Ensure primaryArtists is available
+        if (!song.primaryArtists && song.artist) {
+          song.primaryArtists = song.artist;
+        }
+
+        return song;
+      });
+
+      // Return the processed results
+      return { ...data.data, results: processedResults };
     } catch (error: unknown) {
       attemptsLeft--;
 
       if (error instanceof Error && error.name === "AbortError") {
         console.error(
-          `API request timed out for query: ${query} using ${API_BASE_URL}`
+          `API request timed out for query: ${enhancedQuery} using ${API_BASE_URL}`
         );
       } else {
         console.error(
-          `Error searching songs for query: ${query} using ${API_BASE_URL}`,
+          `Error searching songs for query: ${enhancedQuery} using ${API_BASE_URL}`,
           error
         );
       }
@@ -385,5 +482,34 @@ export const searchPlaylists = async (
   } catch (error) {
     console.error("Error searching playlists:", error);
     throw error;
+  }
+};
+
+/**
+ * Fetch lyrics for a song using better-lyrics-api
+ * @param title - The song title
+ * @param artist - The artist name
+ * @returns A Promise that resolves to the lyrics text or null if not found
+ */
+export const getLyrics = async (title: string, artist: string): Promise<string | null> => {
+  try {
+    // Base URL for the better-lyrics-api
+    // Using the API endpoint provided in the repository
+    const apiBaseUrl = "https://better-lyrics-api.herokuapp.com";
+    
+    const response = await fetch(
+      `${apiBaseUrl}/getLyrics?a=${encodeURIComponent(artist)}&s=${encodeURIComponent(title)}`
+    );
+    
+    if (!response.ok) {
+      console.error(`Failed to fetch lyrics: ${response.status}`);
+      return null;
+    }
+    
+    const data = await response.json();
+    return data.lyrics || null;
+  } catch (error) {
+    console.error('Error fetching lyrics:', error);
+    return null;
   }
 };

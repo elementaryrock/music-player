@@ -1,0 +1,201 @@
+/* Search Results Styling */
+
+.search-results {
+  width: 100%;
+  max-width: 1200px;
+  background-color: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(15px) saturate(180%);
+  border-radius: 15px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+  padding: 25px;
+  margin: 25px 0;
+  position: relative;
+  overflow: hidden;
+  color: white;
+}
+
+.search-results-title {
+  margin-top: 0;
+  margin-bottom: 25px;
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #fff;
+  text-align: left;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+  padding-bottom: 15px;
+}
+
+.search-results-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 500px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+}
+
+.search-results-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.search-results-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.search-results-list::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+}
+
+.search-result-item {
+  display: flex;
+  align-items: center;
+  padding: 16px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  background-color: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.search-result-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+}
+
+.search-result-item:active {
+  transform: translateY(0);
+  transition: all 0.1s ease;
+}
+
+.result-thumb-container {
+  width: 60px;
+  height: 60px;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  margin-right: 16px;
+  flex-shrink: 0;
+}
+
+.result-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.3s ease;
+}
+
+.search-result-item:hover .result-thumb {
+  transform: scale(1.1);
+}
+
+.result-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.result-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: white;
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.result-artist {
+  font-size: 0.9rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.result-year {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin-top: 3px;
+}
+
+.result-play-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.05));
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  opacity: 0;
+  transform: scale(0.8);
+  margin-left: 10px;
+  flex-shrink: 0;
+}
+
+.search-result-item:hover .result-play-button {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.result-play-button:hover {
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.1));
+  color: white;
+  transform: scale(1.1);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .search-results {
+    padding: 15px;
+  }
+  
+  .search-result-item {
+    padding: 12px;
+  }
+  
+  .result-thumb-container {
+    width: 50px;
+    height: 50px;
+    margin-right: 12px;
+  }
+  
+  .result-title {
+    font-size: 0.95rem;
+  }
+  
+  .result-artist {
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .result-thumb-container {
+    width: 40px;
+    height: 40px;
+    margin-right: 10px;
+  }
+  
+  .search-results-title {
+    font-size: 1.3rem;
+    margin-bottom: 15px;
+  }
+  
+  .result-play-button {
+    width: 32px;
+    height: 32px;
+  }
+}

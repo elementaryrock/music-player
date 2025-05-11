@@ -11,7 +11,7 @@ import QualitySelector from "./components/QualitySelector";
 import SourceToggle from "./components/SourceToggle";
 import SearchBar from "./components/SearchBar";
 import SearchResults from "./components/SearchResults";
-import { searchSongs } from "./services/api";
+import { searchSongs, getLyrics } from "./services/api";
 
 // Define a type for the track
 interface Track {
@@ -808,7 +808,7 @@ function App() {
     }
   };
 
-  const handleResultSelect = (song: any) => {
+  const handleResultSelect = async (song: any) => {
     try {
       const qualityUrls: Record<string, string> = {};
       if (Array.isArray(song.downloadUrl)) {
@@ -832,6 +832,7 @@ function App() {
           ? song.image[song.image.length - 1].link || song.image[song.image.length - 1].url
           : song.imageUrl) || "";
 
+      // Create the new track without lyrics first
       const newTrack: Track = {
         id: song.id || Date.now(),
         title: song.name || "Unknown",
@@ -841,12 +842,36 @@ function App() {
         qualityUrls,
       };
 
+      // Set the current track immediately for better UX
       setPlaylist([newTrack]);
       setCurrentTrack(newTrack);
       setCurrentTrackIndex(0);
       setCurrentQuality("320kbps");
       setIsPlaying(true);
       setSearchResults([]);
+
+      // Then fetch lyrics asynchronously
+      try {
+        console.log(`Fetching lyrics for ${newTrack.title} by ${newTrack.artist}`);
+        const lyrics = await getLyrics(newTrack.title, newTrack.artist);
+        
+        if (lyrics) {
+          console.log("Lyrics found!");
+          // Create a Blob URL for the lyrics content
+          const blob = new Blob([lyrics], { type: 'text/plain' });
+          const lrcUrl = URL.createObjectURL(blob);
+          
+          // Update the track with lyrics URL
+          const updatedTrack = { ...newTrack, lrcUrl };
+          setCurrentTrack(updatedTrack);
+          setPlaylist([updatedTrack]);
+        } else {
+          console.log("No lyrics found");
+        }
+      } catch (lyricsError) {
+        console.error("Error fetching lyrics:", lyricsError);
+        // We don't set an error state here to avoid disrupting the music playback
+      }
     } catch (err) {
       console.error("Error loading selected song", err);
       setError("Failed to load the selected song");
