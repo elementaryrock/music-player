@@ -971,6 +971,17 @@ function App() {
           </button>
         </div>
       )}
+      
+      {/* Search Component with Floating Dropdown - Moved to top */}
+      <SearchBar
+        query={searchQuery}
+        onQueryChange={setSearchQuery}
+        onSearch={handleSearch}
+        isSearching={isSearching}
+        hasResults={searchResults.length > 0}
+      >
+        <SearchResults results={searchResults} onSelect={handleResultSelect} />
+      </SearchBar>
 
       {/* Hidden Audio Element */}
       {currentTrack && (
@@ -1064,17 +1075,6 @@ function App() {
           onTrackSelect={handleTrackSelect}
         />
       </div>
-
-      {/* Search Component with Floating Dropdown */}
-      <SearchBar
-        query={searchQuery}
-        onQueryChange={setSearchQuery}
-        onSearch={handleSearch}
-        isSearching={isSearching}
-        hasResults={searchResults.length > 0}
-      >
-        <SearchResults results={searchResults} onSelect={handleResultSelect} />
-      </SearchBar>
     </div>
   );
 }
