@@ -277,8 +277,8 @@ export const searchSongs = async (
             song.artist = artistInfo;
           }
         } else if (!song.primaryArtists) {
-          // If we couldn't find anything, set a default
-          song.primaryArtists = song.artist || "Artist";
+          // Leave blank if unknown, avoid generic placeholder that harms lyric fetch
+          song.primaryArtists = song.artist || "";
         }
 
         return song;
@@ -595,7 +595,9 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
         .replace(/\(.*?\)|\[.*?\]/g, '') // remove brackets/parentheses
         .replace(/feat\.?|ft\.?/gi, '')
         .replace(/[^a-zA-Z0-9\s]/g, '') // remove special chars
-        .trim();
+        .trim()
+        .replace(/^artist$/i, '') // remove placeholder 'Artist'
+        .replace(/^unknown\s*artist?$/i, '');
 
     const trySearch = async (params: Record<string, string>): Promise<any[]> => {
       const usp = new URLSearchParams(params);
@@ -631,9 +633,9 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
       };
 
       // 1. Exact title, artist, duration (if available)
-      variants.push(buildParams(cleanTitle, cleanArtist, duration));
-      // 2. Exact title & artist – no duration
-      variants.push(buildParams(cleanTitle, cleanArtist));
+      variants.push(buildParams(cleanTitle, cleanArtist || undefined, duration));
+      // 2. Exact title & artist – no duration (only if artist present)
+      if (cleanArtist) variants.push(buildParams(cleanTitle, cleanArtist));
       // 3. Title only
       variants.push(buildParams(cleanTitle));
 
@@ -665,8 +667,8 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
     }
 
     const searchVariants: Record<string, string>[] = [
-      { track_name: cleanTitle, artist_name: cleanArtist },
-      { q: `${cleanTitle} ${cleanArtist}` },
+      cleanArtist ? { track_name: cleanTitle, artist_name: cleanArtist } : { track_name: cleanTitle },
+      cleanArtist ? { q: `${cleanTitle} ${cleanArtist}` } : { q: cleanTitle },
       { track_name: cleanTitle },
       { q: cleanTitle },
     ];
@@ -699,7 +701,7 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
 
       const inputArtistLower = artist.toLowerCase();
       const inputTitleLower = title.toLowerCase();
-      const inputAlbumLower = album?.toLowerCase();
+      const inputAlbumLower = typeof album === 'string' ? album.toLowerCase() : undefined;
 
       // Artist scoring
       if (Rartist) {
