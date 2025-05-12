@@ -578,30 +578,215 @@ export const searchPlaylists = async (
 };
 
 /**
- * Fetch lyrics for a song using better-lyrics-api
+ * Fetch lyrics for a song using LRCLIB API
  * @param title - The song title
  * @param artist - The artist name
+ * @param album - The album name (optional)
+ * @param duration - The song duration in seconds (optional)
  * @returns A Promise that resolves to the lyrics text or null if not found
  */
-export const getLyrics = async (title: string, artist: string): Promise<string | null> => {
+export const getLyrics = async (title: string, artist: string, album?: string, duration?: number): Promise<string | null> => {
   try {
-    // Base URL for the better-lyrics-api
-    // Using the API endpoint provided in the repository
-    const apiBaseUrl = "https://better-lyrics-api.herokuapp.com";
-    
-    const response = await fetch(
-      `${apiBaseUrl}/getLyrics?a=${encodeURIComponent(artist)}&s=${encodeURIComponent(title)}`
-    );
-    
-    if (!response.ok) {
-      console.error(`Failed to fetch lyrics: ${response.status}`);
+    const searchApiUrl = 'https://lrclib.net/api/search';
+
+    // Helper to sanitize strings (remove brackets, feat., etc.)
+    const sanitize = (str: string): string =>
+      str
+        .replace(/\(.*?\)|\[.*?\]/g, '') // remove brackets/parentheses
+        .replace(/feat\.?|ft\.?/gi, '')
+        .replace(/[^a-zA-Z0-9\s]/g, '') // remove special chars
+        .trim();
+
+    const trySearch = async (params: Record<string, string>): Promise<any[]> => {
+      const usp = new URLSearchParams(params);
+      const resp = await fetch(`${searchApiUrl}?${usp.toString()}`);
+      if (!resp.ok) {
+        console.warn(`LRCLIB search API error ${resp.status} for params`, params);
+        return [];
+      }
+      const json = await resp.json();
+      return Array.isArray(json) ? json : [];
+    };
+
+    const cleanTitle = sanitize(title);
+    const cleanArtist = sanitize(artist);
+
+    /*
+     * STEP 1: Try LRCLIB /api/get (and get-cached) endpoints directly.
+     * These endpoints can often return lyrics immediately when supplied
+     * with a combination of track name / artist / duration, avoiding the
+     * need for a separate search round-trip. We try a few progressively
+     * relaxed parameter sets until we either get lyrics or exhaust the possibilities.
+     */
+    const attemptDirectGet = async (): Promise<string | null> => {
+      // Build a list of URLSearchParams variants to try – start strict, then relax
+      const variants: URLSearchParams[] = [];
+
+      const buildParams = (track: string, artistParam?: string, dur?: number): URLSearchParams => {
+        const p = new URLSearchParams();
+        p.append("track_name", track);
+        if (artistParam) p.append("artist_name", artistParam);
+        if (dur !== undefined) p.append("duration", dur.toString());
+        return p;
+      };
+
+      // 1. Exact title, artist, duration (if available)
+      variants.push(buildParams(cleanTitle, cleanArtist, duration));
+      // 2. Exact title & artist – no duration
+      variants.push(buildParams(cleanTitle, cleanArtist));
+      // 3. Title only
+      variants.push(buildParams(cleanTitle));
+
+      for (const params of variants) {
+        try {
+          const url = `https://lrclib.net/api/get?${params.toString()}`;
+          const resp = await fetch(url);
+          if (!resp.ok) {
+            console.warn(`LRCLIB direct GET error ${resp.status} for ${url}`);
+            continue;
+          }
+          const json: any = await resp.json();
+          const lyr = json?.syncedLyrics || json?.plainLyrics;
+          if (lyr) {
+            console.log("LRCLIB: obtained lyrics via direct GET with params", params.toString());
+            return lyr;
+          }
+        } catch (e) {
+          console.warn("LRCLIB: direct GET attempt failed", e);
+        }
+      }
+
+      return null;
+    };
+
+    const directLyrics = await attemptDirectGet();
+    if (directLyrics) {
+      return directLyrics;
+    }
+
+    const searchVariants: Record<string, string>[] = [
+      { track_name: cleanTitle, artist_name: cleanArtist },
+      { q: `${cleanTitle} ${cleanArtist}` },
+      { track_name: cleanTitle },
+      { q: cleanTitle },
+    ];
+
+    let searchResults: any[] = [];
+    for (const variant of searchVariants) {
+      searchResults = await trySearch(variant);
+      if (searchResults.length > 0) {
+        console.log('LRCLIB: results found with params', variant);
+        break;
+      }
+    }
+
+    if (searchResults.length === 0) {
+      console.log('No results from LRCLIB search API after trying variants.');
       return null;
     }
+
+    // Step 2: Find the best match from search results
+    let bestMatch: { id: number; score: number; name: string; artist: string; album?: string; duration?: number; instrumental?: boolean; } | null = null;
+    // After empirical testing some valid matches scored 4, lower threshold slightly
+    const MIN_SCORE_THRESHOLD = 4;
+
+    for (const result of searchResults) {
+      let currentScore = 0;
+      const Rartist = result.artistName?.toLowerCase();
+      const Rtitle = result.trackName?.toLowerCase();
+      const Ralbum = result.albumName?.toLowerCase();
+      const Rduration = result.duration ? Math.round(result.duration) : undefined;
+
+      const inputArtistLower = artist.toLowerCase();
+      const inputTitleLower = title.toLowerCase();
+      const inputAlbumLower = album?.toLowerCase();
+
+      // Artist scoring
+      if (Rartist) {
+        if (Rartist === inputArtistLower) {
+          currentScore += 3;
+        } else if (inputArtistLower.includes(Rartist) || Rartist.includes(inputArtistLower)) {
+          currentScore += 1;
+        }
+      }
+
+      // Title scoring
+      if (Rtitle) {
+        if (Rtitle === inputTitleLower) {
+          currentScore += 3;
+        } else if (inputTitleLower.includes(Rtitle) || Rtitle.includes(inputTitleLower)) {
+          currentScore += 1;
+        }
+      }
+      
+      // Album scoring
+      if (inputAlbumLower && Ralbum) {
+        if (Ralbum === inputAlbumLower) {
+          currentScore += 2;
+        } else if (inputAlbumLower.includes(Ralbum) || Ralbum.includes(inputAlbumLower)) {
+          currentScore += 1;
+        }
+      }
+
+      // Duration scoring
+      if (duration && Rduration && Math.abs(duration - Rduration) <= 5) { // Allow 5s difference
+        currentScore += 1;
+      }
+      
+      // Penalize instrumental tracks if we are not specifically looking for them
+      if (result.instrumental) {
+          currentScore -= 2;
+      }
+
+      if (!bestMatch || currentScore > bestMatch.score) {
+        bestMatch = { 
+            id: result.id, 
+            score: currentScore, 
+            name: result.trackName, 
+            artist: result.artistName,
+            album: result.albumName,
+            duration: result.duration ? Math.round(result.duration) : undefined,
+            instrumental: result.instrumental
+        };
+      }
+    }
     
-    const data = await response.json();
-    return data.lyrics || null;
+    let finalMatchId: number | null = null;
+
+    if (bestMatch && bestMatch.score >= MIN_SCORE_THRESHOLD) {
+        finalMatchId = bestMatch.id;
+        console.log(`LRCLIB: Found best match: ID=${finalMatchId}, Score=${bestMatch.score}, Track='${bestMatch.name}', Artist='${bestMatch.artist}'`);
+    } else {
+        console.log(`LRCLIB: Failed to find a match above threshold ${MIN_SCORE_THRESHOLD}.`);
+        console.log(`LRCLIB: Input - Title: '${title}', Artist: '${artist}', Album: '${album}', Duration: ${duration}`);
+        if (bestMatch) {
+            console.log(`LRCLIB: Best candidate was - ID=${bestMatch.id}, Score=${bestMatch.score}, Track='${bestMatch.name}', Artist='${bestMatch.artist}', Album='${bestMatch.album}', Duration=${bestMatch.duration}, Instrumental=${bestMatch.instrumental}`);
+        } else {
+            console.log('LRCLIB: No potential matches found after scoring search results.');
+        }
+    }
+
+    if (!finalMatchId) {
+      console.log('LRCLIB: Could not find a suitable match (above threshold) in search results.');
+      return null;
+    }
+
+    // Step 3: Fetch lyrics by ID
+    const getApiUrl = `https://lrclib.net/api/get/${finalMatchId}`;
+    const getResponse = await fetch(getApiUrl);
+
+    if (!getResponse.ok) {
+      console.error(`Failed to fetch lyrics from LRCLIB by ID ${finalMatchId}: ${getResponse.status}`);
+      console.error(`LRCLIB: Details for failed fetch - Input Title: '${title}', Artist: '${artist}', Album: '${album}', Duration: ${duration}`);
+      return null;
+    }
+
+    const data: any = await getResponse.json();
+    const lyrics = data.syncedLyrics || data.plainLyrics;
+    return lyrics || null;
+
   } catch (error) {
-    console.error('Error fetching lyrics:', error);
+    console.error('Error fetching lyrics from LRCLIB:', error);
     return null;
   }
 };

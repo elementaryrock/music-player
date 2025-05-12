@@ -22,6 +22,8 @@ interface Track {
   albumArtUrl?: string; // Optional album art
   lrcUrl?: string; // URL to LRC file
   qualityUrls?: Record<string, string>; // Map of quality->URL from API
+  album?: string; // Album name
+  duration?: number; // Duration in seconds
 }
 
 function App() {
@@ -857,6 +859,8 @@ function App() {
         audioSrc,
         albumArtUrl,
         qualityUrls,
+        album: song.album || song.album_name || '', // Add album
+        duration: song.duration ? parseInt(song.duration, 10) : undefined, // Add duration
       };
 
       // Set the current track immediately for better UX
@@ -869,11 +873,9 @@ function App() {
 
       // Then fetch lyrics asynchronously
       try {
-        console.log(`Fetching lyrics for ${newTrack.title} by ${newTrack.artist}`);
-        const lyrics = await getLyrics(newTrack.title, newTrack.artist);
+        const lyrics = await getLyrics(newTrack.title, newTrack.artist, newTrack.album, newTrack.duration);
         
         if (lyrics) {
-          console.log("Lyrics found!");
           // Create a Blob URL for the lyrics content
           const blob = new Blob([lyrics], { type: 'text/plain' });
           const lrcUrl = URL.createObjectURL(blob);
