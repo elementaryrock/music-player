@@ -863,10 +863,23 @@ function App() {
         duration: song.duration ? parseInt(song.duration, 10) : undefined, // Add duration
       };
 
-      // Set the current track immediately for better UX
-      setPlaylist([newTrack]);
+      // Add the new track to the playlist (append if not already present)
+      let newIndex = 0;
+      setPlaylist((prevPlaylist) => {
+        const existingIndex = prevPlaylist.findIndex((trk) => trk.id === newTrack.id);
+        if (existingIndex !== -1) {
+          // Track already exists, keep playlist unchanged and use its index
+          newIndex = existingIndex;
+          return prevPlaylist;
+        }
+        // Append the new track to the end of the playlist
+        const updated = [...prevPlaylist, newTrack];
+        newIndex = updated.length - 1;
+        return updated;
+      });
+      // Update currently playing track and index
       setCurrentTrack(newTrack);
-      setCurrentTrackIndex(0);
+      setCurrentTrackIndex(newIndex);
       setCurrentQuality("320kbps");
       setIsPlaying(true);
       setSearchResults([]);
@@ -883,7 +896,11 @@ function App() {
           // Update the track with lyrics URL
           const updatedTrack = { ...newTrack, lrcUrl };
           setCurrentTrack(updatedTrack);
-          setPlaylist([updatedTrack]);
+          setPlaylist((prevPlaylist) => {
+            const updated = [...prevPlaylist];
+            updated[newIndex] = updatedTrack;
+            return updated;
+          });
         } else {
           console.log("No lyrics found");
         }

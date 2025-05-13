@@ -277,8 +277,11 @@ export const searchSongs = async (
             song.artist = artistInfo;
           }
         } else if (!song.primaryArtists) {
-          // Leave blank if unknown, avoid generic placeholder that harms lyric fetch
-          song.primaryArtists = song.artist || "";
+          // Fallbacks: use any existing non-placeholder artist / singers field, else set to 'Unknown Artist'
+          const fallbackArtist = (song.artist && !/^artist$/i.test(song.artist))
+            ? song.artist
+            : (song.singers && song.singers.trim() !== '' ? song.singers : undefined);
+          song.primaryArtists = fallbackArtist || "Unknown Artist";
         }
 
         return song;
