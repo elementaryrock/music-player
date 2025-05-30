@@ -7,9 +7,7 @@
 
 // Base URL for the JioSaavn API
 // Updated to use the MaanasMS Cloudflare Worker instance (single, high-availability endpoint)
-const API_ENDPOINTS = [
-  "https://jiosaavn-api.maanasms.workers.dev/api",
-];
+const API_ENDPOINTS = ["https://jiosaavn-api.maanasms.workers.dev/api"];
 
 // Start with the first endpoint
 let currentEndpointIndex = 0;
@@ -97,19 +95,19 @@ const POPULAR_ARTISTS = [
 const KNOWN_SONGS_ARTISTS: Record<string, string> = {
   // Tamasha movie soundtrack
   "Agar Tum Saath Ho": "Alka Yagnik, Arijit Singh",
-  "Matargashti": "Mohit Chauhan",
+  Matargashti: "Mohit Chauhan",
   "Heer Toh Badi Sad Hai": "Mika Singh",
   "Wat Wat Wat": "Arijit Singh",
   "Tu Koi Aur Hai": "A.R. Rahman",
   "Agar Tum Mil Jao": "Arijit Singh",
   // Other popular songs that might have artist issues
-  "Alone": "Alan Walker",
-  "Faded": "Alan Walker",
+  Alone: "Alan Walker",
+  Faded: "Alan Walker",
   "Shape of You": "Ed Sheeran",
-  "Despacito": "Luis Fonsi, Daddy Yankee",
+  Despacito: "Luis Fonsi, Daddy Yankee",
   "Blinding Lights": "The Weeknd",
   "Dance Monkey": "Tones and I",
-  "That's So True": "Gracie Abrams"
+  "That's So True": "Gracie Abrams",
 };
 
 /**
@@ -121,7 +119,7 @@ const prepareSearchQuery = (originalQuery: string): string => {
   // Try to extract artist and song title patterns
   const byPattern = /(.+)\s+by\s+(.+)/i;
   const dashPattern = /(.+)\s+-\s+(.+)/i;
-  
+
   // Check if the query contains artist information
   const byMatch = originalQuery.match(byPattern);
   const dashMatch = originalQuery.match(dashPattern);
@@ -134,17 +132,17 @@ const prepareSearchQuery = (originalQuery: string): string => {
     const [_, artist, songTitle] = dashMatch;
     return `${songTitle.trim()} ${artist.trim()}`;
   }
-  
+
   // Check if query matches or contains any popular artist
-  const matchingArtist = POPULAR_ARTISTS.find(artist => {
+  const matchingArtist = POPULAR_ARTISTS.find((artist) => {
     return originalQuery.toLowerCase().includes(artist.toLowerCase());
   });
-  
+
   if (matchingArtist) {
     // If query contains artist name, return as is - the artist name helps
     return originalQuery;
   }
-  
+
   // For generic queries without artist info, return original
   return originalQuery;
 };
@@ -157,7 +155,7 @@ export const searchSongs = async (
   // Try each API endpoint until one works
   let attemptsLeft = API_ENDPOINTS.length;
   const enhancedQuery = prepareSearchQuery(query);
-  
+
   console.log(`Original query: "${query}", Enhanced query: "${enhancedQuery}"`);
 
   while (attemptsLeft > 0) {
@@ -204,10 +202,12 @@ export const searchSongs = async (
         if (!song.imageUrl && song.image) {
           if (Array.isArray(song.image) && song.image.length > 0) {
             // Use the highest quality image available (last in array)
-            song.imageUrl = song.image[song.image.length - 1].link || song.image[song.image.length - 1].url;
-          } else if (typeof song.image === 'string') {
+            song.imageUrl =
+              song.image[song.image.length - 1].link ||
+              song.image[song.image.length - 1].url;
+          } else if (typeof song.image === "string") {
             song.imageUrl = song.image;
-          } else if (typeof song.image === 'object' && song.image !== null) {
+          } else if (typeof song.image === "object" && song.image !== null) {
             song.imageUrl = song.image.link || song.image.url;
           }
         }
@@ -216,58 +216,74 @@ export const searchSongs = async (
         // Extract and normalize artist information from all possible fields
         const extractArtistInfo = (songData: any) => {
           // First check if this is a known song with a predefined artist
-          const songName = songData.name || songData.title || '';
+          const songName = songData.name || songData.title || "";
           if (songName && KNOWN_SONGS_ARTISTS[songName]) {
             return KNOWN_SONGS_ARTISTS[songName];
           }
-          
+
           // Check for partial matches in known songs
           for (const knownSong in KNOWN_SONGS_ARTISTS) {
             if (songName.includes(knownSong) || knownSong.includes(songName)) {
               return KNOWN_SONGS_ARTISTS[knownSong];
             }
           }
-          
+
           // Check all possible artist fields in order of priority
-          if (songData.primaryArtists && songData.primaryArtists.trim() !== '') {
+          if (
+            songData.primaryArtists &&
+            songData.primaryArtists.trim() !== ""
+          ) {
             return songData.primaryArtists;
-          } 
-          
-          if (songData.artist && songData.artist.trim() !== '') {
+          }
+
+          if (songData.artist && songData.artist.trim() !== "") {
             return songData.artist;
           }
-          
+
           // Handle arrays of artists
-          if (songData.artists && Array.isArray(songData.artists) && songData.artists.length > 0) {
+          if (
+            songData.artists &&
+            Array.isArray(songData.artists) &&
+            songData.artists.length > 0
+          ) {
             // Check if it's an array of strings
-            if (typeof songData.artists[0] === 'string') {
+            if (typeof songData.artists[0] === "string") {
               return songData.artists[0];
             }
             // Check if it's an array of objects with name property
-            if (typeof songData.artists[0] === 'object' && songData.artists[0] && songData.artists[0].name) {
+            if (
+              typeof songData.artists[0] === "object" &&
+              songData.artists[0] &&
+              songData.artists[0].name
+            ) {
               return songData.artists[0].name;
             }
           }
-          
+
           // Check for featured artists
-          if (songData.featuredArtists && songData.featuredArtists.trim() !== '') {
+          if (
+            songData.featuredArtists &&
+            songData.featuredArtists.trim() !== ""
+          ) {
             return songData.featuredArtists;
           }
-          
+
           // Check for singers field
-          if (songData.singers && songData.singers.trim() !== '') {
+          if (songData.singers && songData.singers.trim() !== "") {
             return songData.singers;
           }
-          
+
           // Try to parse from title if in format 'Song - Artist'
-          const titleMatch = (songData.title || songData.name || '').match(/\s+-\s+(.+)$/);
+          const titleMatch = (songData.title || songData.name || "").match(
+            /\s+-\s+(.+)$/
+          );
           if (titleMatch && titleMatch[1]) {
             return titleMatch[1];
           }
-          
+
           return null;
         };
-        
+
         // Apply the artist extraction and save to primaryArtists
         const artistInfo = extractArtistInfo(song);
         if (artistInfo) {
@@ -278,9 +294,12 @@ export const searchSongs = async (
           }
         } else if (!song.primaryArtists) {
           // Fallbacks: use any existing non-placeholder artist / singers field, else set to 'Unknown Artist'
-          const fallbackArtist = (song.artist && !/^artist$/i.test(song.artist))
-            ? song.artist
-            : (song.singers && song.singers.trim() !== '' ? song.singers : undefined);
+          const fallbackArtist =
+            song.artist && !/^artist$/i.test(song.artist)
+              ? song.artist
+              : song.singers && song.singers.trim() !== ""
+              ? song.singers
+              : undefined;
           song.primaryArtists = fallbackArtist || "Unknown Artist";
         }
 
@@ -588,25 +607,35 @@ export const searchPlaylists = async (
  * @param duration - The song duration in seconds (optional)
  * @returns A Promise that resolves to the lyrics text or null if not found
  */
-export const getLyrics = async (title: string, artist: string, album?: string, duration?: number): Promise<string | null> => {
+export const getLyrics = async (
+  title: string,
+  artist: string,
+  album?: string,
+  duration?: number
+): Promise<string | null> => {
   try {
-    const searchApiUrl = 'https://lrclib.net/api/search';
+    const searchApiUrl = "https://lrclib.net/api/search";
 
     // Helper to sanitize strings (remove brackets, feat., etc.)
     const sanitize = (str: string): string =>
       str
-        .replace(/\(.*?\)|\[.*?\]/g, '') // remove brackets/parentheses
-        .replace(/feat\.?|ft\.?/gi, '')
-        .replace(/[^a-zA-Z0-9\s]/g, '') // remove special chars
+        .replace(/\(.*?\)|\[.*?\]/g, "") // remove brackets/parentheses
+        .replace(/feat\.?|ft\.?/gi, "")
+        .replace(/[^a-zA-Z0-9\s]/g, "") // remove special chars
         .trim()
-        .replace(/^artist$/i, '') // remove placeholder 'Artist'
-        .replace(/^unknown\s*artist?$/i, '');
+        .replace(/^artist$/i, "") // remove placeholder 'Artist'
+        .replace(/^unknown\s*artist?$/i, "");
 
-    const trySearch = async (params: Record<string, string>): Promise<any[]> => {
+    const trySearch = async (
+      params: Record<string, string>
+    ): Promise<any[]> => {
       const usp = new URLSearchParams(params);
       const resp = await fetch(`${searchApiUrl}?${usp.toString()}`);
       if (!resp.ok) {
-        console.warn(`LRCLIB search API error ${resp.status} for params`, params);
+        console.warn(
+          `LRCLIB search API error ${resp.status} for params`,
+          params
+        );
         return [];
       }
       const json = await resp.json();
@@ -627,7 +656,11 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
       // Build a list of URLSearchParams variants to try – start strict, then relax
       const variants: URLSearchParams[] = [];
 
-      const buildParams = (track: string, artistParam?: string, dur?: number): URLSearchParams => {
+      const buildParams = (
+        track: string,
+        artistParam?: string,
+        dur?: number
+      ): URLSearchParams => {
         const p = new URLSearchParams();
         p.append("track_name", track);
         if (artistParam) p.append("artist_name", artistParam);
@@ -636,7 +669,9 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
       };
 
       // 1. Exact title, artist, duration (if available)
-      variants.push(buildParams(cleanTitle, cleanArtist || undefined, duration));
+      variants.push(
+        buildParams(cleanTitle, cleanArtist || undefined, duration)
+      );
       // 2. Exact title & artist – no duration (only if artist present)
       if (cleanArtist) variants.push(buildParams(cleanTitle, cleanArtist));
       // 3. Title only
@@ -653,7 +688,10 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
           const json: any = await resp.json();
           const lyr = json?.syncedLyrics || json?.plainLyrics;
           if (lyr) {
-            console.log("LRCLIB: obtained lyrics via direct GET with params", params.toString());
+            console.log(
+              "LRCLIB: obtained lyrics via direct GET with params",
+              params.toString()
+            );
             return lyr;
           }
         } catch (e) {
@@ -670,7 +708,9 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
     }
 
     const searchVariants: Record<string, string>[] = [
-      cleanArtist ? { track_name: cleanTitle, artist_name: cleanArtist } : { track_name: cleanTitle },
+      cleanArtist
+        ? { track_name: cleanTitle, artist_name: cleanArtist }
+        : { track_name: cleanTitle },
       cleanArtist ? { q: `${cleanTitle} ${cleanArtist}` } : { q: cleanTitle },
       { track_name: cleanTitle },
       { q: cleanTitle },
@@ -680,18 +720,26 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
     for (const variant of searchVariants) {
       searchResults = await trySearch(variant);
       if (searchResults.length > 0) {
-        console.log('LRCLIB: results found with params', variant);
+        console.log("LRCLIB: results found with params", variant);
         break;
       }
     }
 
     if (searchResults.length === 0) {
-      console.log('No results from LRCLIB search API after trying variants.');
+      console.log("No results from LRCLIB search API after trying variants.");
       return null;
     }
 
     // Step 2: Find the best match from search results
-    let bestMatch: { id: number; score: number; name: string; artist: string; album?: string; duration?: number; instrumental?: boolean; } | null = null;
+    let bestMatch: {
+      id: number;
+      score: number;
+      name: string;
+      artist: string;
+      album?: string;
+      duration?: number;
+      instrumental?: boolean;
+    } | null = null;
     // After empirical testing some valid matches scored 4, lower threshold slightly
     const MIN_SCORE_THRESHOLD = 4;
 
@@ -700,17 +748,23 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
       const Rartist = result.artistName?.toLowerCase();
       const Rtitle = result.trackName?.toLowerCase();
       const Ralbum = result.albumName?.toLowerCase();
-      const Rduration = result.duration ? Math.round(result.duration) : undefined;
+      const Rduration = result.duration
+        ? Math.round(result.duration)
+        : undefined;
 
       const inputArtistLower = artist.toLowerCase();
       const inputTitleLower = title.toLowerCase();
-      const inputAlbumLower = typeof album === 'string' ? album.toLowerCase() : undefined;
+      const inputAlbumLower =
+        typeof album === "string" ? album.toLowerCase() : undefined;
 
       // Artist scoring
       if (Rartist) {
         if (Rartist === inputArtistLower) {
           currentScore += 3;
-        } else if (inputArtistLower.includes(Rartist) || Rartist.includes(inputArtistLower)) {
+        } else if (
+          inputArtistLower.includes(Rartist) ||
+          Rartist.includes(inputArtistLower)
+        ) {
           currentScore += 1;
         }
       }
@@ -719,60 +773,79 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
       if (Rtitle) {
         if (Rtitle === inputTitleLower) {
           currentScore += 3;
-        } else if (inputTitleLower.includes(Rtitle) || Rtitle.includes(inputTitleLower)) {
+        } else if (
+          inputTitleLower.includes(Rtitle) ||
+          Rtitle.includes(inputTitleLower)
+        ) {
           currentScore += 1;
         }
       }
-      
+
       // Album scoring
       if (inputAlbumLower && Ralbum) {
         if (Ralbum === inputAlbumLower) {
           currentScore += 2;
-        } else if (inputAlbumLower.includes(Ralbum) || Ralbum.includes(inputAlbumLower)) {
+        } else if (
+          inputAlbumLower.includes(Ralbum) ||
+          Ralbum.includes(inputAlbumLower)
+        ) {
           currentScore += 1;
         }
       }
 
       // Duration scoring
-      if (duration && Rduration && Math.abs(duration - Rduration) <= 5) { // Allow 5s difference
+      if (duration && Rduration && Math.abs(duration - Rduration) <= 5) {
+        // Allow 5s difference
         currentScore += 1;
       }
-      
+
       // Penalize instrumental tracks if we are not specifically looking for them
       if (result.instrumental) {
-          currentScore -= 2;
+        currentScore -= 2;
       }
 
       if (!bestMatch || currentScore > bestMatch.score) {
-        bestMatch = { 
-            id: result.id, 
-            score: currentScore, 
-            name: result.trackName, 
-            artist: result.artistName,
-            album: result.albumName,
-            duration: result.duration ? Math.round(result.duration) : undefined,
-            instrumental: result.instrumental
+        bestMatch = {
+          id: result.id,
+          score: currentScore,
+          name: result.trackName,
+          artist: result.artistName,
+          album: result.albumName,
+          duration: result.duration ? Math.round(result.duration) : undefined,
+          instrumental: result.instrumental,
         };
       }
     }
-    
+
     let finalMatchId: number | null = null;
 
     if (bestMatch && bestMatch.score >= MIN_SCORE_THRESHOLD) {
-        finalMatchId = bestMatch.id;
-        console.log(`LRCLIB: Found best match: ID=${finalMatchId}, Score=${bestMatch.score}, Track='${bestMatch.name}', Artist='${bestMatch.artist}'`);
+      finalMatchId = bestMatch.id;
+      console.log(
+        `LRCLIB: Found best match: ID=${finalMatchId}, Score=${bestMatch.score}, Track='${bestMatch.name}', Artist='${bestMatch.artist}'`
+      );
     } else {
-        console.log(`LRCLIB: Failed to find a match above threshold ${MIN_SCORE_THRESHOLD}.`);
-        console.log(`LRCLIB: Input - Title: '${title}', Artist: '${artist}', Album: '${album}', Duration: ${duration}`);
-        if (bestMatch) {
-            console.log(`LRCLIB: Best candidate was - ID=${bestMatch.id}, Score=${bestMatch.score}, Track='${bestMatch.name}', Artist='${bestMatch.artist}', Album='${bestMatch.album}', Duration=${bestMatch.duration}, Instrumental=${bestMatch.instrumental}`);
-        } else {
-            console.log('LRCLIB: No potential matches found after scoring search results.');
-        }
+      console.log(
+        `LRCLIB: Failed to find a match above threshold ${MIN_SCORE_THRESHOLD}.`
+      );
+      console.log(
+        `LRCLIB: Input - Title: '${title}', Artist: '${artist}', Album: '${album}', Duration: ${duration}`
+      );
+      if (bestMatch) {
+        console.log(
+          `LRCLIB: Best candidate was - ID=${bestMatch.id}, Score=${bestMatch.score}, Track='${bestMatch.name}', Artist='${bestMatch.artist}', Album='${bestMatch.album}', Duration=${bestMatch.duration}, Instrumental=${bestMatch.instrumental}`
+        );
+      } else {
+        console.log(
+          "LRCLIB: No potential matches found after scoring search results."
+        );
+      }
     }
 
     if (!finalMatchId) {
-      console.log('LRCLIB: Could not find a suitable match (above threshold) in search results.');
+      console.log(
+        "LRCLIB: Could not find a suitable match (above threshold) in search results."
+      );
       return null;
     }
 
@@ -781,17 +854,117 @@ export const getLyrics = async (title: string, artist: string, album?: string, d
     const getResponse = await fetch(getApiUrl);
 
     if (!getResponse.ok) {
-      console.error(`Failed to fetch lyrics from LRCLIB by ID ${finalMatchId}: ${getResponse.status}`);
-      console.error(`LRCLIB: Details for failed fetch - Input Title: '${title}', Artist: '${artist}', Album: '${album}', Duration: ${duration}`);
+      console.error(
+        `Failed to fetch lyrics from LRCLIB by ID ${finalMatchId}: ${getResponse.status}`
+      );
+      console.error(
+        `LRCLIB: Details for failed fetch - Input Title: '${title}', Artist: '${artist}', Album: '${album}', Duration: ${duration}`
+      );
       return null;
     }
 
     const data: any = await getResponse.json();
     const lyrics = data.syncedLyrics || data.plainLyrics;
     return lyrics || null;
-
   } catch (error) {
-    console.error('Error fetching lyrics from LRCLIB:', error);
+    console.error("Error fetching lyrics from LRCLIB:", error);
     return null;
+  }
+};
+
+/**
+ * Combined search function that searches both JioSaavn and Tidal
+ * @param query Search query
+ * @param source Audio source to search ('jiosaavn', 'tidal', or 'both')
+ * @returns Combined search results
+ */
+export const searchCombined = async (
+  query: string,
+  source: "jiosaavn" | "tidal" | "both" = "both"
+): Promise<any> => {
+  const results = {
+    jiosaavn: null,
+    tidal: null,
+    combined: [],
+  };
+
+  try {
+    // Search JioSaavn if requested
+    if (source === "jiosaavn" || source === "both") {
+      try {
+        const jiosaavnResults = await searchSongs(query, 0, 10);
+        results.jiosaavn = jiosaavnResults;
+
+        // Add JioSaavn results to combined array
+        if (jiosaavnResults?.results) {
+          results.combined.push(
+            ...jiosaavnResults.results.map((song: any) => ({
+              ...song,
+              source: "jiosaavn",
+            }))
+          );
+        }
+      } catch (error) {
+        console.warn("JioSaavn search failed:", error);
+      }
+    }
+
+    // Search Tidal if requested
+    if (source === "tidal" || source === "both") {
+      try {
+        // Import Tidal search function dynamically to avoid circular imports
+        const { searchTidalSongs } = await import("./tidalApi");
+        const tidalResults = await searchTidalSongs(query, 10, 0);
+        results.tidal = tidalResults;
+
+        // Add Tidal results to combined array
+        if (tidalResults?.items) {
+          results.combined.push(
+            ...tidalResults.items.map((song: any) => ({
+              id: song.id,
+              title: song.title,
+              artist:
+                song.artist?.name ||
+                song.artists?.[0]?.name ||
+                "Unknown Artist",
+              audioSrc: "", // Will be filled when track is selected
+              albumArtUrl: `https://resources.tidal.com/images/${song.album.cover.replace(
+                /-/g,
+                "/"
+              )}/640x640.jpg`,
+              album: song.album.title,
+              duration: song.duration,
+              source: "tidal",
+              // Keep original Tidal data for compatibility with existing code
+              name: song.title,
+              primaryArtists:
+                song.artist?.name ||
+                song.artists?.[0]?.name ||
+                "Unknown Artist",
+              imageUrl: `https://resources.tidal.com/images/${song.album.cover.replace(
+                /-/g,
+                "/"
+              )}/640x640.jpg`,
+              image: [
+                {
+                  link: `https://resources.tidal.com/images/${song.album.cover.replace(
+                    /-/g,
+                    "/"
+                  )}/640x640.jpg`,
+                },
+              ],
+            }))
+          );
+        }
+      } catch (error) {
+        console.warn("Tidal search failed:", error);
+      }
+    }
+
+    console.log(`Combined search results for "${query}":`, results);
+    return results;
+  } catch (error) {
+    console.error("Error in combined search:", error);
+    throw error;
   }
 };

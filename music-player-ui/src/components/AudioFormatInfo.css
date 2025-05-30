@@ -1,0 +1,124 @@
+.audio-format-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.format-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.format-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.format-badge.supported {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.format-badge.unsupported {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.quality-info {
+  display: flex;
+  align-items: center;
+}
+
+.quality-badge {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  font-size: 0.65rem;
+  font-weight: 500;
+}
+
+.warning-icon {
+  font-size: 0.8rem;
+  animation: pulse 2s infinite;
+}
+
+.format-warning {
+  margin-top: 2px;
+  padding: 4px 6px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 4px;
+  color: #f59e0b;
+  font-size: 0.65rem;
+  line-height: 1.2;
+}
+
+.format-warning small {
+  display: block;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Compact version for smaller spaces */
+.audio-format-info.compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.audio-format-info.compact .format-warning {
+  display: none;
+}
+
+/* Integration with existing player styles */
+.player-container .audio-format-info {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+}
+
+.now-playing .audio-format-info {
+  margin-top: 4px;
+}
+
+/* Dark theme adjustments */
+@media (prefers-color-scheme: dark) {
+  .format-badge.supported {
+    background: rgba(34, 197, 94, 0.15);
+    border-color: rgba(34, 197, 94, 0.25);
+  }
+  
+  .format-badge.unsupported {
+    background: rgba(239, 68, 68, 0.15);
+    border-color: rgba(239, 68, 68, 0.25);
+  }
+  
+  .quality-badge {
+    background: rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.25);
+  }
+  
+  .format-warning {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.15);
+  }
+}

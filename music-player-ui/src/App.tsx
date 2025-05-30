@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import "./App.css";
 import "./loading.css";
 import "./background.css";
@@ -8,23 +8,24 @@ import TrackProgress from "./components/TrackProgress";
 import Playlist from "./components/Playlist";
 import { LrcPlayer } from "./components/LrcPlayer";
 import QualitySelector from "./components/QualitySelector";
-import SourceToggle from "./components/SourceToggle";
+import SourceToggle, { AudioSource } from "./components/SourceToggle";
 import SearchBar from "./components/SearchBar";
 import SearchResults from "./components/SearchResults";
-import { searchSongs, getLyrics } from "./services/api";
-
-// Define a type for the track
-interface Track {
-  id: number | string;
-  title: string;
-  artist: string;
-  audioSrc: string;
-  albumArtUrl?: string; // Optional album art
-  lrcUrl?: string; // URL to LRC file
-  qualityUrls?: Record<string, string>; // Map of quality->URL from API
-  album?: string; // Album name
-  duration?: number; // Duration in seconds
-}
+import { searchSongs, getLyrics, searchCombined } from "./services/api";
+import { loadTidalSong, loadTidalTrackById } from "./services/tidalApi";
+import { Track } from "./types/api.types";
+import {
+  detectAudioFormatSupport,
+  logAudioSupportInfo,
+  getBestSupportedTidalQuality,
+  isAudioUrlSupported,
+  getAudioFormatFromUrl,
+} from "./utils/audioSupport";
+import {
+  needsFallback,
+  showFormatCompatibilityMessage,
+  getRecommendedQuality,
+} from "./services/audioFallback";
 
 function App() {
   // State for playlist
@@ -41,22 +42,72 @@ function App() {
   const [showLyrics, setShowLyrics] = useState(true); // State to toggle lyrics display
   const [isLiked, setIsLiked] = useState(false); // State for like functionality
   const [currentQuality, setCurrentQuality] = useState("320kbps"); // Default to highest quality
-  // Define available qualities as a constant since they don't change
-  const availableQualities = [
-    "320kbps", // Highest quality first (default)
-    "160kbps",
-    "96kbps",
-  ]; // Available quality options
-  const [useLocalFiles, setUseLocalFiles] = useState(false); // Use JioSaavn URLs by default
+
+  const [currentSource, setCurrentSource] = useState<AudioSource>("jiosaavn"); // Default to JioSaavn
+
+  // Define available qualities based on current source
+  const getAvailableQualities = useCallback((): string[] => {
+    switch (currentSource) {
+      case "tidal": {
+        const allTidalQualities = [
+          "HI_RES_LOSSLESS",
+          "HI_RES",
+          "LOSSLESS",
+          "HIGH",
+          "LOW",
+        ];
+        // Return qualities ordered by browser compatibility
+        const bestSupported = getBestSupportedTidalQuality(allTidalQualities);
+        const reordered = [
+          bestSupported,
+          ...allTidalQualities.filter((q) => q !== bestSupported),
+        ];
+        return reordered;
+      }
+      case "jiosaavn":
+        return ["320kbps", "160kbps", "96kbps"];
+      case "local":
+        return ["320kbps"]; // Local files typically have one quality
+      default:
+        return ["320kbps", "160kbps", "96kbps"];
+    }
+  }, [currentSource]);
+
+  const availableQualities = getAvailableQualities();
+
+  // Effect to reset quality when source changes
+  useEffect(() => {
+    const newQualities = getAvailableQualities();
+    if (!newQualities.includes(currentQuality)) {
+      // Set to the highest quality available for the new source
+      setCurrentQuality(newQualities[0]);
+    }
+  }, [currentSource, currentQuality, getAvailableQualities]);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<Track[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   // Use a ref to track the current track to avoid dependency issues
   const previousTrackRef = useRef<string>("");
+
+  // Initialize audio support detection on component mount
+  useEffect(() => {
+    logAudioSupportInfo();
+
+    // For Tidal source, check if we need to adjust the default quality
+    if (currentSource === "tidal") {
+      const recommended = getRecommendedQuality(availableQualities);
+      if (recommended.quality !== currentQuality) {
+        console.log(
+          `🎵 Recommended quality for your browser: ${recommended.quality} (${recommended.reason})`
+        );
+        setCurrentQuality(recommended.quality);
+      }
+    }
+  }, []); // Run once on mount
 
   // Effect to load the song from JioSaavn
   useEffect(() => {
@@ -747,51 +798,100 @@ function App() {
     setShowLyrics(!showLyrics);
   };
 
-  // Function to toggle between local files and JioSaavn URLs
-  const toggleAudioSource = () => {
+  // Function to handle audio source change
+  const handleSourceChange = async (newSource: AudioSource) => {
     // Save current playback position and playing state
     const currentPosition = audioRef.current?.currentTime || 0;
     const wasPlaying = isPlaying;
 
-    // Toggle the source
-    const newUseLocalFiles = !useLocalFiles;
-    setUseLocalFiles(newUseLocalFiles);
-    console.log(
-      `Toggling audio source to ${
-        newUseLocalFiles ? "local files" : "JioSaavn URLs"
-      }`
-    );
+    setCurrentSource(newSource);
+    console.log(`Changing audio source to ${newSource}`);
 
-    // If we have a current track, update its URL
+    // If we have a current track, update its URL based on the new source
     if (currentTrack) {
-      const newUrl = getUrlForQuality(currentQuality, newUseLocalFiles);
-      console.log(
-        `Source toggle: Selected URL for ${currentQuality}: ${newUrl}`
-      );
+      let newUrl = "";
 
-      // Create a new track object with the updated URL
-      const updatedTrack = {
-        ...currentTrack,
-        audioSrc: newUrl,
-      };
+      if (newSource === "local") {
+        newUrl = getUrlForQuality(currentQuality, true);
+      } else if (newSource === "jiosaavn") {
+        newUrl = getUrlForQuality(currentQuality, false);
+      } else if (newSource === "tidal") {
+        // For Tidal, we need to load the song from Tidal API
+        try {
+          const tidalTrack = await loadTidalSong(
+            currentTrack.title,
+            currentTrack.artist
+          );
+          if (tidalTrack) {
+            newUrl = tidalTrack.audioSrc;
+            // Update the track with Tidal-specific data
+            const updatedTrack = {
+              ...currentTrack,
+              audioSrc: newUrl,
+              albumArtUrl: tidalTrack.albumArtUrl || currentTrack.albumArtUrl,
+              lrcUrl: tidalTrack.lrcUrl || currentTrack.lrcUrl,
+              source: "tidal" as const,
+            };
+            setCurrentTrack(updatedTrack);
 
-      // Update the current track
-      setCurrentTrack(updatedTrack);
-
-      // After the audio element is updated, restore playback position and state
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.currentTime = currentPosition;
-          if (wasPlaying) {
-            audioRef.current.play().catch((error) => {
-              console.error(
-                "Error playing audio after source change:",
-                error
-              );
-            });
+            // Restore playback position and state
+            setTimeout(() => {
+              if (audioRef.current) {
+                audioRef.current.currentTime = currentPosition;
+                if (wasPlaying) {
+                  audioRef.current.play().catch((error) => {
+                    console.error(
+                      "Error playing audio after source change:",
+                      error
+                    );
+                  });
+                }
+              }
+            }, 100);
+            return;
+          } else {
+            console.warn(
+              "Could not load track from Tidal, falling back to current source"
+            );
+            return;
           }
+        } catch (error) {
+          console.error("Error loading track from Tidal:", error);
+          setError("Failed to load track from Tidal");
+          return;
         }
-      }, 100);
+      }
+
+      if (newUrl) {
+        console.log(
+          `Source change: Selected URL for ${currentQuality}: ${newUrl}`
+        );
+
+        // Create a new track object with the updated URL
+        const updatedTrack = {
+          ...currentTrack,
+          audioSrc: newUrl,
+          source: newSource,
+        };
+
+        // Update the current track
+        setCurrentTrack(updatedTrack);
+
+        // After the audio element is updated, restore playback position and state
+        setTimeout(() => {
+          if (audioRef.current) {
+            audioRef.current.currentTime = currentPosition;
+            if (wasPlaying) {
+              audioRef.current.play().catch((error) => {
+                console.error(
+                  "Error playing audio after source change:",
+                  error
+                );
+              });
+            }
+          }
+        }, 100);
+      }
     }
   };
 
@@ -800,8 +900,19 @@ function App() {
     if (!searchQuery.trim()) return;
     try {
       setIsSearching(true);
-      const results = await searchSongs(searchQuery.trim());
-      setSearchResults(results?.results || []);
+
+      // Search based on current source
+      if (currentSource === "tidal") {
+        const results = await searchCombined(searchQuery.trim(), "tidal");
+        setSearchResults(results?.combined || []);
+      } else if (currentSource === "jiosaavn") {
+        const results = await searchSongs(searchQuery.trim());
+        setSearchResults(results?.results || []);
+      } else {
+        // For local files, we can't really search, so search JioSaavn as fallback
+        const results = await searchSongs(searchQuery.trim());
+        setSearchResults(results?.results || []);
+      }
     } catch (err) {
       console.error("Search error", err);
       setError("Failed to search songs");
@@ -810,63 +921,143 @@ function App() {
     }
   };
 
-  const handleResultSelect = async (song: any) => {
+  const handleResultSelect = async (song: Track) => {
     try {
-      const qualityUrls: Record<string, string> = {};
-      if (Array.isArray(song.downloadUrl)) {
-        song.downloadUrl.forEach((item: any) => {
-          const link = item.link || item.url;
-          if (link && item.quality) {
-            qualityUrls[item.quality] = link;
+      let newTrack: Track;
+
+      // Handle different sources
+      if (song.source === "tidal") {
+        // For Tidal songs, we need to get the streaming URL using the track ID
+        try {
+          const { loadTidalTrackById } = await import("./services/tidalApi");
+
+          // Create a TidalTrack object from the search result for metadata
+          const searchTrack = {
+            id: Number(song.id),
+            title: song.title,
+            artist: { id: 0, name: song.artist, type: "MAIN" },
+            artists: [{ id: 0, name: song.artist, type: "MAIN" }],
+            album: {
+              id: 0,
+              title: song.album || "Unknown Album",
+              cover:
+                (song as any).albumArtUrl
+                  ?.split("/")
+                  .pop()
+                  ?.replace(".jpg", "") || "",
+            },
+            duration: song.duration || 0,
+            replayGain: 0,
+            peak: 0,
+            allowStreaming: true,
+            streamReady: true,
+            streamStartDate: "",
+            premiumStreamingOnly: false,
+            trackNumber: 1,
+            volumeNumber: 1,
+            popularity: 0,
+            copyright: "",
+            url: "",
+            isrc: "",
+            editable: false,
+            explicit: false,
+            audioQuality: "LOSSLESS",
+            audioModes: ["STEREO"],
+          };
+
+          const tidalTrack = await loadTidalTrackById(
+            Number(song.id),
+            currentQuality as
+              | "LOW"
+              | "HIGH"
+              | "LOSSLESS"
+              | "HI_RES"
+              | "HI_RES_LOSSLESS",
+            searchTrack
+          );
+          if (tidalTrack) {
+            newTrack = {
+              ...tidalTrack,
+              id: song.id || Date.now(),
+            };
+          } else {
+            throw new Error("Could not load Tidal track");
           }
+        } catch (error) {
+          console.error("Error loading Tidal track:", error);
+          setError("Failed to load Tidal track");
+          return;
+        }
+      } else {
+        // For JioSaavn songs, extract quality URLs
+        const qualityUrls: Record<string, string> = {};
+        if (Array.isArray((song as any).downloadUrl)) {
+          (song as any).downloadUrl.forEach((item: any) => {
+            const link = item.link || item.url;
+            if (link && item.quality) {
+              qualityUrls[item.quality] = link;
+            }
+          });
+        }
+
+        const audioSrc =
+          qualityUrls["320kbps"] ||
+          qualityUrls["160kbps"] ||
+          qualityUrls["96kbps"] ||
+          (song as any).media_url ||
+          "";
+
+        const albumArtUrl =
+          (Array.isArray((song as any).image) && (song as any).image.length > 0
+            ? (song as any).image[(song as any).image.length - 1].link ||
+              (song as any).image[(song as any).image.length - 1].url
+            : (song as any).imageUrl) || "";
+
+        // Extract artist information from multiple possible fields
+        const artistName =
+          (song as any).primaryArtists ||
+          song.artist ||
+          ((song as any).artists &&
+          Array.isArray((song as any).artists) &&
+          (song as any).artists.length > 0
+            ? typeof (song as any).artists[0] === "string"
+              ? (song as any).artists[0]
+              : (song as any).artists[0].name || ""
+            : "") ||
+          (song as any).featuredArtists ||
+          "Unknown";
+
+        console.log("Artist information from search result:", {
+          primaryArtists: (song as any).primaryArtists,
+          artist: song.artist,
+          artists: (song as any).artists,
+          featuredArtists: (song as any).featuredArtists,
+          selected: artistName,
         });
+
+        // Create the new track without lyrics first
+        newTrack = {
+          id: song.id || Date.now(),
+          title: (song as any).name || song.title || "Unknown",
+          artist: artistName,
+          audioSrc,
+          albumArtUrl,
+          qualityUrls,
+          album:
+            (song as any).album || (song as any).album_name || song.album || "", // Add album
+          duration: (song as any).duration
+            ? parseInt((song as any).duration, 10)
+            : song.duration, // Add duration
+          source: "jiosaavn",
+        };
       }
-
-      const audioSrc =
-        qualityUrls["320kbps"] ||
-        qualityUrls["160kbps"] ||
-        qualityUrls["96kbps"] ||
-        song.media_url ||
-        "";
-
-      const albumArtUrl =
-        (Array.isArray(song.image) && song.image.length > 0
-          ? song.image[song.image.length - 1].link || song.image[song.image.length - 1].url
-          : song.imageUrl) || "";
-
-      // Extract artist information from multiple possible fields
-      const artistName = song.primaryArtists || 
-                        song.artist || 
-                        (song.artists && Array.isArray(song.artists) && song.artists.length > 0 ? 
-                          (typeof song.artists[0] === 'string' ? song.artists[0] : 
-                           (song.artists[0].name || '')) : '') || 
-                        (song.featuredArtists || '') || 
-                        "Unknown";
-      
-      console.log("Artist information from search result:", { 
-        primaryArtists: song.primaryArtists,
-        artist: song.artist,
-        artists: song.artists,
-        featuredArtists: song.featuredArtists,
-        selected: artistName
-      });
-      
-      // Create the new track without lyrics first
-      const newTrack: Track = {
-        id: song.id || Date.now(),
-        title: song.name || "Unknown",
-        artist: artistName,
-        audioSrc,
-        albumArtUrl,
-        qualityUrls,
-        album: song.album || song.album_name || '', // Add album
-        duration: song.duration ? parseInt(song.duration, 10) : undefined, // Add duration
-      };
 
       // Add the new track to the playlist (append if not already present)
       let newIndex = 0;
       setPlaylist((prevPlaylist) => {
-        const existingIndex = prevPlaylist.findIndex((trk) => trk.id === newTrack.id);
+        const existingIndex = prevPlaylist.findIndex(
+          (trk) => trk.id === newTrack.id
+        );
         if (existingIndex !== -1) {
           // Track already exists, keep playlist unchanged and use its index
           newIndex = existingIndex;
@@ -886,13 +1077,18 @@ function App() {
 
       // Then fetch lyrics asynchronously
       try {
-        const lyrics = await getLyrics(newTrack.title, newTrack.artist, newTrack.album, newTrack.duration);
-        
+        const lyrics = await getLyrics(
+          newTrack.title,
+          newTrack.artist,
+          newTrack.album,
+          newTrack.duration
+        );
+
         if (lyrics) {
           // Create a Blob URL for the lyrics content
-          const blob = new Blob([lyrics], { type: 'text/plain' });
+          const blob = new Blob([lyrics], { type: "text/plain" });
           const lrcUrl = URL.createObjectURL(blob);
-          
+
           // Update the track with lyrics URL
           const updatedTrack = { ...newTrack, lrcUrl };
           setCurrentTrack(updatedTrack);
@@ -946,7 +1142,9 @@ function App() {
 
     // Determine whether to use local files based on the current state or the forceLocalFiles parameter
     const shouldUseLocalFiles =
-      forceLocalFiles !== undefined ? forceLocalFiles : useLocalFiles;
+      forceLocalFiles !== undefined
+        ? forceLocalFiles
+        : currentSource === "local";
 
     console.log(
       `Getting URL for quality: ${validQuality}, using ${
@@ -1007,7 +1205,7 @@ function App() {
           </button>
         </div>
       )}
-      
+
       {/* Search Component with Floating Dropdown - Moved to top */}
       <SearchBar
         query={searchQuery}
@@ -1019,21 +1217,55 @@ function App() {
         <SearchResults results={searchResults} onSelect={handleResultSelect} />
       </SearchBar>
 
-      {/* Hidden Audio Element */}
+      {/* Hidden Audio Element with Enhanced Error Handling */}
       {currentTrack && (
         <audio
           ref={audioRef}
           src={currentTrack.audioSrc}
           preload="metadata"
           onError={(e) => {
-            console.error("Audio error:", e);
-            setError(
-              `Error loading audio: ${
-                e.currentTarget.error?.message || "Unknown error"
-              }`
-            );
+            console.error("🚫 Audio error:", e);
+            const error = e.currentTarget.error;
+
+            // Check if this is a format compatibility issue
+            const format = getAudioFormatFromUrl(currentTrack.audioSrc);
+            if (format && needsFallback(currentTrack.audioSrc)) {
+              console.warn(`⚠️ Audio format '${format}' may not be supported`);
+              showFormatCompatibilityMessage(format, currentQuality);
+
+              // For Tidal FLAC, suggest switching to a lower quality
+              if (format === "flac" && currentSource === "tidal") {
+                const recommended = getRecommendedQuality(availableQualities);
+                setError(
+                  `FLAC format not supported in this browser. Try switching to "${recommended.quality}" quality for better compatibility.`
+                );
+              } else {
+                setError(
+                  `Audio format '${format}' not supported. Try switching to a different quality or source.`
+                );
+              }
+            } else {
+              setError(
+                `Error loading audio: ${error?.message || "Unknown error"}`
+              );
+            }
           }}
-          onCanPlay={() => console.log("Audio can play now")}
+          onCanPlay={() => {
+            console.log("✅ Audio ready to play");
+            // Clear any previous format-related errors
+            if (error && error.includes("format")) {
+              setError(null);
+            }
+          }}
+          onLoadStart={() => {
+            const format = getAudioFormatFromUrl(currentTrack.audioSrc);
+            if (format) {
+              console.log(
+                `🎵 Loading ${format.toUpperCase()} audio:`,
+                currentTrack.audioSrc
+              );
+            }
+          }}
           /* Remove controls to hide the default player */
         ></audio>
       )}
@@ -1049,6 +1281,11 @@ function App() {
                 albumArtUrl={currentTrack.albumArtUrl}
                 initialLiked={isLiked}
                 onLikeToggle={setIsLiked}
+                currentTrack={{
+                  audioSrc: currentTrack.audioSrc,
+                  source: currentTrack.source,
+                }}
+                currentQuality={currentQuality}
               />
               <TrackProgress
                 currentTime={currentTime}
@@ -1071,8 +1308,8 @@ function App() {
 
               {/* Source Toggle */}
               <SourceToggle
-                useLocalFiles={useLocalFiles}
-                onToggle={toggleAudioSource}
+                currentSource={currentSource}
+                onSourceChange={handleSourceChange}
               />
 
               {/* Lyrics toggle button for mobile */}

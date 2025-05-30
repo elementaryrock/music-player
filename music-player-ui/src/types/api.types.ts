@@ -145,6 +145,8 @@ export interface Track {
   duration?: number;
   album?: string;
   year?: string;
+  source?: "local" | "jiosaavn" | "tidal";
+  qualityUrls?: Record<string, string>; // Map of quality->URL from API
 }
 
 // Helper function to convert SaavnSong to Track
@@ -169,5 +171,6 @@ export const convertSaavnSongToTrack = (song: SaavnSong): Track => {
     duration,
     album: song.album.name,
     year: song.year,
+    source: "jiosaavn",
   };
 };
