@@ -12,7 +12,11 @@ import SourceToggle, { AudioSource } from "./components/SourceToggle";
 import SearchBar from "./components/SearchBar";
 import SearchResults from "./components/SearchResults";
 import { searchSongs, getLyrics, searchCombined } from "./services/api";
-import { loadTidalSong, loadTidalTrackById } from "./services/tidalApi";
+import {
+  loadTidalSong,
+  loadTidalTrackById,
+  testTidalApiConnection,
+} from "./services/tidalApi";
 import { Track } from "./types/api.types";
 import {
   detectAudioFormatSupport,
@@ -96,6 +100,15 @@ function App() {
   // Initialize audio support detection on component mount
   useEffect(() => {
     logAudioSupportInfo();
+
+    // Test Tidal API connection
+    testTidalApiConnection().then((success) => {
+      if (success) {
+        console.log("✅ Tidal API connection successful");
+      } else {
+        console.warn("❌ Tidal API connection failed");
+      }
+    });
 
     // For Tidal source, check if we need to adjust the default quality
     if (currentSource === "tidal") {
@@ -927,66 +940,82 @@ function App() {
 
       // Handle different sources
       if (song.source === "tidal") {
-        // For Tidal songs, we need to get the streaming URL using the track ID
-        try {
-          const { loadTidalTrackById } = await import("./services/tidalApi");
-
-          // Create a TidalTrack object from the search result for metadata
-          const searchTrack = {
-            id: Number(song.id),
+        // For Tidal songs from our new simplified search, they already have the streaming URL
+        if (song.audioSrc) {
+          // Song already has streaming URL from the direct search
+          newTrack = {
+            id: song.id || Date.now(),
             title: song.title,
-            artist: { id: 0, name: song.artist, type: "MAIN" },
-            artists: [{ id: 0, name: song.artist, type: "MAIN" }],
-            album: {
-              id: 0,
-              title: song.album || "Unknown Album",
-              cover:
-                (song as any).albumArtUrl
-                  ?.split("/")
-                  .pop()
-                  ?.replace(".jpg", "") || "",
-            },
-            duration: song.duration || 0,
-            replayGain: 0,
-            peak: 0,
-            allowStreaming: true,
-            streamReady: true,
-            streamStartDate: "",
-            premiumStreamingOnly: false,
-            trackNumber: 1,
-            volumeNumber: 1,
-            popularity: 0,
-            copyright: "",
-            url: "",
-            isrc: "",
-            editable: false,
-            explicit: false,
-            audioQuality: "LOSSLESS",
-            audioModes: ["STEREO"],
+            artist: song.artist,
+            audioSrc: song.audioSrc,
+            albumArtUrl: song.albumArtUrl,
+            album: song.album,
+            duration: song.duration,
+            source: "tidal",
+            lrcUrl: (song as any).lrcUrl, // Include lyrics if available
           };
+        } else {
+          // Fallback to the old method if no streaming URL is available
+          try {
+            const { loadTidalTrackById } = await import("./services/tidalApi");
 
-          const tidalTrack = await loadTidalTrackById(
-            Number(song.id),
-            currentQuality as
-              | "LOW"
-              | "HIGH"
-              | "LOSSLESS"
-              | "HI_RES"
-              | "HI_RES_LOSSLESS",
-            searchTrack
-          );
-          if (tidalTrack) {
-            newTrack = {
-              ...tidalTrack,
-              id: song.id || Date.now(),
+            // Create a TidalTrack object from the search result for metadata
+            const searchTrack = {
+              id: Number(song.id),
+              title: song.title,
+              artist: { id: 0, name: song.artist, type: "MAIN" },
+              artists: [{ id: 0, name: song.artist, type: "MAIN" }],
+              album: {
+                id: 0,
+                title: song.album || "Unknown Album",
+                cover:
+                  (song as any).albumArtUrl
+                    ?.split("/")
+                    .pop()
+                    ?.replace(".jpg", "") || "",
+              },
+              duration: song.duration || 0,
+              replayGain: 0,
+              peak: 0,
+              allowStreaming: true,
+              streamReady: true,
+              streamStartDate: "",
+              premiumStreamingOnly: false,
+              trackNumber: 1,
+              volumeNumber: 1,
+              popularity: 0,
+              copyright: "",
+              url: "",
+              isrc: "",
+              editable: false,
+              explicit: false,
+              audioQuality: "LOSSLESS",
+              audioModes: ["STEREO"],
             };
-          } else {
-            throw new Error("Could not load Tidal track");
+
+            const tidalTrack = await loadTidalTrackById(
+              Number(song.id),
+              currentQuality as
+                | "LOW"
+                | "HIGH"
+                | "LOSSLESS"
+                | "HI_RES"
+                | "HI_RES_LOSSLESS",
+              searchTrack
+            );
+            if (tidalTrack) {
+              newTrack = {
+                ...tidalTrack,
+                id: song.id || Date.now(),
+              };
+            } else {
+              throw new Error("Could not load Tidal track");
+            }
+          } catch (error) {
+            console.error("Error loading Tidal track:", error);
+            setError("Failed to load Tidal track");
+            return;
           }
-        } catch (error) {
-          console.error("Error loading Tidal track:", error);
-          setError("Failed to load Tidal track");
-          return;
         }
       } else {
         // For JioSaavn songs, extract quality URLs

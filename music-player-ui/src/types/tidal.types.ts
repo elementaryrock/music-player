@@ -72,15 +72,17 @@ export interface TidalAlbum {
 }
 
 // Tidal Song Response (from /song endpoint)
-export interface TidalSongResponse {
+// Based on actual API response structure - it can be either an array or a single object
+export interface TidalSongResponse extends TidalTrack {
   OriginalTrackUrl: string;
-  "Song Info": TidalTrack;
-  "Track Info": TidalTrackInfo;
 }
+
+// The API might return an array of songs or a single song
+export type TidalSongApiResponse = TidalSongResponse | TidalSongResponse[];
 
 // Tidal Track Response (from /track endpoint) - now includes OriginalTrackUrl merged from array
 export interface TidalTrackResponse extends TidalTrack {
-  OriginalTrackUrl: string;
+  OriginalTrackUrl: string; // This is merged from the originalTrack field in the response
 }
 
 // Tidal Track Info (streaming details)

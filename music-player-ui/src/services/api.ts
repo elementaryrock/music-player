@@ -913,48 +913,81 @@ export const searchCombined = async (
     if (source === "tidal" || source === "both") {
       try {
         // Import Tidal search function dynamically to avoid circular imports
-        const { searchTidalSongs } = await import("./tidalApi");
-        const tidalResults = await searchTidalSongs(query, 10, 0);
-        results.tidal = tidalResults;
+        const { searchTidalSongs, searchTidalSongDirect } = await import(
+          "./tidalApi"
+        );
 
-        // Add Tidal results to combined array
-        if (tidalResults?.items) {
-          results.combined.push(
-            ...tidalResults.items.map((song: any) => ({
-              id: song.id,
-              title: song.title,
-              artist:
-                song.artist?.name ||
-                song.artists?.[0]?.name ||
-                "Unknown Artist",
-              audioSrc: "", // Will be filled when track is selected
-              albumArtUrl: `https://resources.tidal.com/images/${song.album.cover.replace(
-                /-/g,
-                "/"
-              )}/640x640.jpg`,
-              album: song.album.title,
-              duration: song.duration,
-              source: "tidal",
-              // Keep original Tidal data for compatibility with existing code
-              name: song.title,
-              primaryArtists:
-                song.artist?.name ||
-                song.artists?.[0]?.name ||
-                "Unknown Artist",
-              imageUrl: `https://resources.tidal.com/images/${song.album.cover.replace(
-                /-/g,
-                "/"
-              )}/640x640.jpg`,
-              image: [
-                {
-                  link: `https://resources.tidal.com/images/${song.album.cover.replace(
-                    /-/g,
-                    "/"
-                  )}/640x640.jpg`,
-                },
-              ],
-            }))
-          );
+        // Try the direct song search first (simplified approach)
+        // Pass the full query, but the function will extract just the track name
+        const directResult = await searchTidalSongDirect(query);
+        if (directResult) {
+          results.combined.push({
+            id: directResult.id,
+            title: directResult.title,
+            artist: directResult.artist,
+            audioSrc: directResult.audioSrc, // Already has the streaming URL
+            albumArtUrl: directResult.albumArtUrl,
+            album: directResult.album,
+            duration: directResult.duration,
+            source: "tidal",
+            // Keep original data for compatibility
+            name: directResult.title,
+            primaryArtists: directResult.artist,
+            imageUrl: directResult.albumArtUrl,
+            image: directResult.albumArtUrl
+              ? [{ link: directResult.albumArtUrl }]
+              : [],
+          });
+        } else {
+          // Fallback to traditional search if direct search fails
+          const tidalResults = await searchTidalSongs(query, 10, 0);
+          results.tidal = tidalResults;
+
+          // Add Tidal results to combined array
+          if (tidalResults?.items) {
+            results.combined.push(
+              ...tidalResults.items.map((song: any) => ({
+                id: song.id,
+                title: song.title,
+                artist:
+                  song.artist?.name ||
+                  song.artists?.[0]?.name ||
+                  "Unknown Artist",
+                audioSrc: "", // Will be filled when track is selected
+                albumArtUrl: song.album?.cover
+                  ? `https://resources.tidal.com/images/${song.album.cover.replace(
+                      /-/g,
+                      "/"
+                    )}/640x640.jpg`
+                  : "",
+                album: song.album?.title || "Unknown Album",
+                duration: song.duration,
+                source: "tidal",
+                // Keep original Tidal data for compatibility with existing code
+                name: song.title,
+                primaryArtists:
+                  song.artist?.name ||
+                  song.artists?.[0]?.name ||
+                  "Unknown Artist",
+                imageUrl: song.album?.cover
+                  ? `https://resources.tidal.com/images/${song.album.cover.replace(
+                      /-/g,
+                      "/"
+                    )}/640x640.jpg`
+                  : "",
+                image: song.album?.cover
+                  ? [
+                      {
+                        link: `https://resources.tidal.com/images/${song.album.cover.replace(
+                          /-/g,
+                          "/"
+                        )}/640x640.jpg`,
+                      },
+                    ]
+                  : [],
+              }))
+            );
+          }
         }
       } catch (error) {
         console.warn("Tidal search failed:", error);
