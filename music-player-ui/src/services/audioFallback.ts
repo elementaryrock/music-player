@@ -12,7 +12,6 @@ import {
   getTidalFormatForQuality,
   getBestSupportedTidalQuality
 } from '../utils/audioSupport';
-import { TidalQuality } from '../types/tidal.types';
 
 // Fallback strategies
 export type FallbackStrategy = 'quality-downgrade' | 'proxy-transcode' | 'web-audio-api' | 'none';
@@ -104,7 +103,7 @@ export const getTidalFallback = async (
   // Strategy 2: Proxy transcoding (would require a backend service)
   if (opts.strategy === 'proxy-transcode') {
     // This would require a backend transcoding service
-    const transcodingServiceUrl = process.env.REACT_APP_TRANSCODING_SERVICE_URL;
+    const transcodingServiceUrl = import.meta.env.REACT_APP_TRANSCODING_SERVICE_URL;
     
     if (transcodingServiceUrl) {
       const transcodedUrl = `${transcodingServiceUrl}/transcode?url=${encodeURIComponent(originalUrl)}&format=${opts.targetFormat}&bitrate=${opts.targetBitrate}`;
@@ -159,7 +158,7 @@ export class FallbackAudioElement {
 
   private setupEventListeners() {
     // Handle audio errors and attempt fallback
-    this.audio.addEventListener('error', async (event) => {
+    this.audio.addEventListener('error', async (_event) => {
       const error = this.audio.error;
       if (error && this.originalSrc) {
         console.error('🚫 Audio playback error:', error);
@@ -254,7 +253,7 @@ export class FallbackAudioElement {
  * @param format Audio format that's not supported
  * @param quality Current quality setting
  */
-export const showFormatCompatibilityMessage = (format: string, quality?: string): void => {
+export const showFormatCompatibilityMessage = (format: string, _quality?: string): void => {
   const browser = getBrowserInfo();
   
   let message = '';

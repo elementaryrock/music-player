@@ -13,18 +13,18 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/tidal/, ""),
         secure: true,
         configure: (proxy, _options) => {
-          proxy.on("error", (err, _req, _res) => {
-            console.log("Tidal proxy error:", err);
+          proxy.on("error", (_err, _req, _res) => {
+            // console.log("Tidal proxy error:", err);
           });
-          proxy.on("proxyReq", (proxyReq, req, _res) => {
-            console.log("Sending Request to Tidal:", req.method, req.url);
+          proxy.on("proxyReq", (_proxyReq, _req, _res) => {
+            // console.log("Sending Request to Tidal:", req.method, req.url);
           });
-          proxy.on("proxyRes", (proxyRes, req, _res) => {
-            console.log(
-              "Received Response from Tidal:",
-              proxyRes.statusCode,
-              req.url
-            );
+          proxy.on("proxyRes", (_proxyRes, _req, _res) => {
+            // console.log(
+            //   "Received Response from Tidal:",
+            //   proxyRes.statusCode,
+            //   req.url
+            // );
           });
         },
         headers: {
@@ -42,22 +42,22 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api\/tidal-backup/, ""),
         secure: true,
         configure: (proxy, _options) => {
-          proxy.on("error", (err, _req, _res) => {
-            console.log("Tidal backup proxy error:", err);
+          proxy.on("error", (_err, _req, _res) => {
+            // console.log("Tidal backup proxy error:", err);
           });
-          proxy.on("proxyReq", (proxyReq, req, _res) => {
-            console.log(
-              "Sending Request to Tidal Backup:",
-              req.method,
-              req.url
-            );
+          proxy.on("proxyReq", (_proxyReq, _req, _res) => {
+            // console.log(
+            //   "Sending Request to Tidal Backup:",
+            //   req.method,
+            //   req.url
+            // );
           });
-          proxy.on("proxyRes", (proxyRes, req, _res) => {
-            console.log(
-              "Received Response from Tidal Backup:",
-              proxyRes.statusCode,
-              req.url
-            );
+          proxy.on("proxyRes", (_proxyRes, _req, _res) => {
+            // console.log(
+            //   "Received Response from Tidal Backup:",
+            //   proxyRes.statusCode,
+            //   req.url
+            // );
           });
         },
         headers: {

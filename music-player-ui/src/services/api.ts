@@ -50,42 +50,80 @@ export const searchAll = async (query: string): Promise<any> => {
  * @returns Song search results
  */
 /**
- * Database of popular artists to help with search matching
+ * Database of popular artists to help with search matching and ranking
+ * Organized by popularity tier for better result scoring
  */
-const POPULAR_ARTISTS = [
-  "Taylor Swift",
-  "Ed Sheeran",
-  "Ariana Grande",
-  "The Weeknd",
-  "Drake",
-  "Beyoncé",
-  "Justin Bieber",
-  "BTS",
-  "Adele",
-  "Billie Eilish",
-  "Lady Gaga",
-  "Bruno Mars",
-  "Rihanna",
-  "Post Malone",
-  "Bad Bunny",
-  "Eminem",
-  "Dua Lipa",
-  "Coldplay",
-  "Maroon 5",
-  "Imagine Dragons",
-  "Katy Perry",
-  "Shawn Mendes",
-  "Travis Scott",
-  "Harry Styles",
-  "Alan Walker",
-  "Marshmello",
-  "Gracie Abrams",
-  "A.R. Rahman",
-  "Arijit Singh",
-  "Alka Yagnik",
-  "Amit Trivedi",
-  "Mohit Chauhan",
-  "Shreya Ghoshal",
+const POPULAR_ARTISTS = {
+  // Top tier artists (highest priority)
+  tier1: [
+    "Taylor Swift",
+    "Ed Sheeran", 
+    "Ariana Grande",
+    "The Weeknd",
+    "Drake",
+    "Beyoncé",
+    "Justin Bieber",
+    "BTS",
+    "Adele",
+    "Billie Eilish",
+    "Dua Lipa",
+    "Post Malone",
+    "Bad Bunny",
+    "Harry Styles",
+    "Olivia Rodrigo",
+    "The Chainsmokers",
+    "Marshmello",
+    "Alan Walker",
+    "David Guetta",
+    "Calvin Harris"
+  ],
+  // Second tier artists (high priority)
+  tier2: [
+    "Lady Gaga",
+    "Bruno Mars", 
+    "Rihanna",
+    "Eminem",
+    "Coldplay",
+    "Maroon 5",
+    "Imagine Dragons", 
+    "Katy Perry",
+    "Shawn Mendes",
+    "Travis Scott",
+    "Gracie Abrams",
+    "Lana Del Rey",
+    "Sam Smith",
+    "John Legend",
+    "Sia",
+    "OneRepublic",
+    "Charlie Puth",
+    "Camila Cabello",
+    "Halsey",
+    "The 1975"
+  ],
+  // Popular Indian/Bollywood artists
+  tier3: [
+    "A.R. Rahman",
+    "Arijit Singh", 
+    "Alka Yagnik",
+    "Amit Trivedi",
+    "Mohit Chauhan",
+    "Shreya Ghoshal",
+    "Udit Narayan",
+    "Kumar Sanu",
+    "Lata Mangeshkar",
+    "Kishore Kumar",
+    "Rahat Fateh Ali Khan",
+    "Atif Aslam",
+    "Armaan Malik",
+    "Neha Kakkar"
+  ]
+};
+
+// Flatten all artists for easy lookup
+const ALL_POPULAR_ARTISTS = [
+  ...POPULAR_ARTISTS.tier1,
+  ...POPULAR_ARTISTS.tier2, 
+  ...POPULAR_ARTISTS.tier3
 ];
 
 /**
@@ -108,6 +146,37 @@ const KNOWN_SONGS_ARTISTS: Record<string, string> = {
   "Blinding Lights": "The Weeknd",
   "Dance Monkey": "Tones and I",
   "That's So True": "Gracie Abrams",
+};
+
+/**
+ * Get the popularity tier of an artist
+ * @param artistName Artist name to check
+ * @returns Number representing tier (1 is highest priority, 0 if not found)
+ */
+const getArtistPopularityTier = (artistName: string): number => {
+  if (!artistName) return 0;
+  
+  const normalized = artistName.toLowerCase().trim();
+  
+  if (POPULAR_ARTISTS.tier1.some(artist => 
+    normalized.includes(artist.toLowerCase()) || artist.toLowerCase().includes(normalized)
+  )) {
+    return 1;
+  }
+  
+  if (POPULAR_ARTISTS.tier2.some(artist => 
+    normalized.includes(artist.toLowerCase()) || artist.toLowerCase().includes(normalized)
+  )) {
+    return 2;
+  }
+  
+  if (POPULAR_ARTISTS.tier3.some(artist => 
+    normalized.includes(artist.toLowerCase()) || artist.toLowerCase().includes(normalized)
+  )) {
+    return 3;
+  }
+  
+  return 0; // Not a known popular artist
 };
 
 /**
@@ -134,7 +203,7 @@ const prepareSearchQuery = (originalQuery: string): string => {
   }
 
   // Check if query matches or contains any popular artist
-  const matchingArtist = POPULAR_ARTISTS.find((artist) => {
+  const matchingArtist = ALL_POPULAR_ARTISTS.find((artist) => {
     return originalQuery.toLowerCase().includes(artist.toLowerCase());
   });
 
@@ -147,10 +216,69 @@ const prepareSearchQuery = (originalQuery: string): string => {
   return originalQuery;
 };
 
+/**
+ * Score and rank search results based on popularity and relevance
+ * @param results Array of search results
+ * @param originalQuery The original search query
+ * @returns Sorted array with popular artists prioritized
+ */
+const rankSearchResults = (results: any[], originalQuery: string): any[] => {
+  if (!results || results.length === 0) return results;
+
+  const queryLower = originalQuery.toLowerCase();
+  
+  // Helper function to extract artist info (we'll redefine it here to avoid scope issues)
+  const getArtistFromSong = (song: any): string => {
+    return song.primaryArtists || song.artist || song.singers || 'Unknown Artist';
+  };
+  
+  // Score each result
+  const scoredResults = results.map(song => {
+    let score = 0;
+    
+    // Extract artist information
+    const artistInfo = getArtistFromSong(song);
+    const artistTier = getArtistPopularityTier(artistInfo);
+    
+    // Artist popularity scoring (heavily weighted)
+    if (artistTier === 1) score += 100; // Top tier artists
+    else if (artistTier === 2) score += 50; // Second tier artists  
+    else if (artistTier === 3) score += 25; // Third tier artists
+    
+    // Title match scoring
+    const songTitle = (song.name || song.title || '').toLowerCase();
+    if (songTitle.includes(queryLower)) score += 30;
+    if (songTitle === queryLower) score += 50;
+    
+    // Artist match scoring  
+    if (artistInfo && artistInfo.toLowerCase().includes(queryLower)) score += 20;
+    
+    // Exact artist match bonus
+    const exactArtistMatch = ALL_POPULAR_ARTISTS.find(artist => 
+      artist.toLowerCase() === artistInfo?.toLowerCase()
+    );
+    if (exactArtistMatch) score += 40;
+    
+    // Language preference (slight preference for English content for global appeal)
+    if (song.language === 'english' || song.language === 'English') score += 5;
+    
+    // Avoid duplicate or very similar titles (penalty for generic names)
+    const genericTitles = ['untitled', 'track', 'song', 'audio', 'music'];
+    if (genericTitles.some(generic => songTitle.includes(generic))) score -= 20;
+    
+    return { ...song, popularityScore: score };
+  });
+  
+  // Sort by score (descending) and return original objects
+  return scoredResults
+    .sort((a, b) => b.popularityScore - a.popularityScore)
+    .map(({ popularityScore, ...song }) => song); // Remove the score from final results
+};
+
 export const searchSongs = async (
   query: string,
   page: number = 0,
-  limit: number = 20 // Increased limit for better results
+  limit: number = 50 // Increased limit for better filtering of popular results
 ): Promise<any> => {
   // Try each API endpoint until one works
   let attemptsLeft = API_ENDPOINTS.length;
@@ -306,8 +434,11 @@ export const searchSongs = async (
         return song;
       });
 
-      // Return the processed results
-      return { ...data.data, results: processedResults };
+      // Apply popularity ranking to improve result quality
+      const rankedResults = rankSearchResults(processedResults, enhancedQuery);
+
+      // Return the processed and ranked results
+      return { ...data.data, results: rankedResults };
     } catch (error: unknown) {
       attemptsLeft--;
 
@@ -882,7 +1013,11 @@ export const searchCombined = async (
   query: string,
   source: "jiosaavn" | "tidal" | "both" = "both"
 ): Promise<any> => {
-  const results = {
+  const results: {
+    jiosaavn: any;
+    tidal: any;
+    combined: any[];
+  } = {
     jiosaavn: null,
     tidal: null,
     combined: [],

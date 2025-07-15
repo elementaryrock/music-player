@@ -14,15 +14,12 @@ import SearchResults from "./components/SearchResults";
 import { searchSongs, getLyrics, searchCombined } from "./services/api";
 import {
   loadTidalSong,
-  loadTidalTrackById,
   testTidalApiConnection,
 } from "./services/tidalApi";
 import { Track } from "./types/api.types";
 import {
-  detectAudioFormatSupport,
   logAudioSupportInfo,
   getBestSupportedTidalQuality,
-  isAudioUrlSupported,
   getAudioFormatFromUrl,
 } from "./utils/audioSupport";
 import {
