@@ -8,20 +8,20 @@ export default defineConfig({
     cors: true,
     proxy: {
       "/api/tidal": {
-        target: "https://tidal.401658.xyz",
+        target: "https://hifi.401658.xyz",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/tidal/, ""),
         secure: true,
         configure: (proxy, _options) => {
           proxy.on("error", (err, _req, _res) => {
-            console.log("Tidal proxy error:", err);
+            console.log("HiFi Tidal proxy error:", err);
           });
           proxy.on("proxyReq", (proxyReq, req, _res) => {
-            console.log("Sending Request to Tidal:", req.method, req.url);
+            console.log("Sending Request to HiFi Tidal:", req.method, req.url);
           });
           proxy.on("proxyRes", (proxyRes, req, _res) => {
             console.log(
-              "Received Response from Tidal:",
+              "Received Response from HiFi Tidal:",
               proxyRes.statusCode,
               req.url
             );
@@ -37,24 +37,24 @@ export default defineConfig({
         },
       },
       "/api/tidal-backup": {
-        target: "https://hifi-04ed2aaea09a.herokuapp.com",
+        target: "https://tidal.401658.xyz",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/tidal-backup/, ""),
         secure: true,
         configure: (proxy, _options) => {
           proxy.on("error", (err, _req, _res) => {
-            console.log("Tidal backup proxy error:", err);
+            console.log("Legacy Tidal proxy error:", err);
           });
           proxy.on("proxyReq", (proxyReq, req, _res) => {
             console.log(
-              "Sending Request to Tidal Backup:",
+              "Sending Request to Legacy Tidal:",
               req.method,
               req.url
             );
           });
           proxy.on("proxyRes", (proxyRes, req, _res) => {
             console.log(
-              "Received Response from Tidal Backup:",
+              "Received Response from Legacy Tidal:",
               proxyRes.statusCode,
               req.url
             );

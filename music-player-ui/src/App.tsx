@@ -11,12 +11,14 @@ import QualitySelector from "./components/QualitySelector";
 import SourceToggle, { AudioSource } from "./components/SourceToggle";
 import SearchBar from "./components/SearchBar";
 import SearchResults from "./components/SearchResults";
+import TidalHealthIndicator from "./components/TidalHealthIndicator";
 import { searchSongs, getLyrics, searchCombined } from "./services/api";
 import {
   loadTidalSong,
   loadTidalTrackById,
   testTidalApiConnection,
 } from "./services/tidalApi";
+import { tidalHealthMonitor } from "./utils/tidalHealthMonitor";
 import { Track } from "./types/api.types";
 import {
   detectAudioFormatSupport,
@@ -101,13 +103,32 @@ function App() {
   useEffect(() => {
     logAudioSupportInfo();
 
-    // Test Tidal API connection
-    testTidalApiConnection().then((success) => {
-      if (success) {
-        console.log("✅ Tidal API connection successful");
+    // Initialize Tidal API health monitoring
+    console.log("🔍 Initializing Tidal API health monitoring...");
+    
+    // Start health monitoring (checks every 5 minutes)
+    tidalHealthMonitor.startMonitoring(300000);
+    
+    // Perform initial health check
+    tidalHealthMonitor.performHealthCheck().then((status) => {
+      if (status.isHealthy) {
+        console.log(`✅ Tidal API healthy: ${status.workingEndpoints}/${status.totalEndpoints} endpoints working`);
+        console.log(`🎯 Using endpoint: ${status.currentEndpoint}`);
+      } else if (status.workingEndpoints > 0) {
+        console.warn(`⚠️ Tidal API degraded: ${status.workingEndpoints}/${status.totalEndpoints} endpoints working`);
+        console.log(`🎯 Using endpoint: ${status.currentEndpoint}`);
+        console.log("Issues:", status.issues);
       } else {
-        console.warn("❌ Tidal API connection failed");
+        console.error("❌ All Tidal API endpoints failed");
+        console.log("Issues:", status.issues);
+        console.log("Recommendations:", status.recommendations);
+        
+        // Attempt auto-fix
+        console.log("🔧 Attempting auto-fix...");
+        tidalHealthMonitor.attemptAutoFix();
       }
+    }).catch((error) => {
+      console.error("❌ Tidal API health check failed:", error);
     });
 
     // For Tidal source, check if we need to adjust the default quality
@@ -120,6 +141,12 @@ function App() {
         setCurrentQuality(recommended.quality);
       }
     }
+
+    // Cleanup function to stop monitoring when component unmounts
+    return () => {
+      console.log("🛑 Stopping Tidal API health monitoring...");
+      tidalHealthMonitor.stopMonitoring();
+    };
   }, []); // Run once on mount
 
   // Effect to load the song from JioSaavn
@@ -1245,6 +1272,18 @@ function App() {
       >
         <SearchResults results={searchResults} onSelect={handleResultSelect} />
       </SearchBar>
+
+      {/* Tidal API Health Indicator - Show when using Tidal source */}
+      {currentSource === "tidal" && (
+        <div style={{ 
+          position: 'fixed', 
+          top: '80px', 
+          right: '20px', 
+          zIndex: 1000 
+        }}>
+          <TidalHealthIndicator showDetails={false} />
+        </div>
+      )}
 
       {/* Hidden Audio Element with Enhanced Error Handling */}
       {currentTrack && (
