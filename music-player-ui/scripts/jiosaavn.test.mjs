@@ -5,6 +5,7 @@ import {
   buildJioSearchQueries,
   getJioArtistNames,
   getJioArtistText,
+  getJioAudioQuality,
   getJioAudioUrl,
   getJioPlayableArtistNames,
   isJioVersionSafe,
@@ -74,6 +75,11 @@ test("builds bounded Jio title/artist query variants", () => {
 
 test("selects the highest quality documented JioSaavn download URL", () => {
   assert.equal(getJioAudioUrl(documentedSong), "https://audio.example.test/320.mp4");
+  assert.equal(getJioAudioQuality(documentedSong), "high");
+  assert.equal(
+    getJioAudioQuality({ downloadUrl: [{ quality: "48kbps", url: "https://audio.example.test/48.mp4" }] }),
+    "standard",
+  );
 });
 
 test("keeps compatibility with legacy flat artist and URL fields", () => {
@@ -104,69 +110,61 @@ test("matches harmless soundtrack catalog suffixes without accepting versions", 
 });
 
 test("maps the documented nested artist response before strict playback matching", async () => {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = async () => new Response(JSON.stringify({
-    success: true,
-    data: {
-      total: 1,
-      start: 1,
-      results: [documentedSong],
-    },
-  }), {
-    headers: { "content-type": "application/json" },
-  });
-
-  try {
-    const result = await searchSongs("Ignite", 0, 1);
-    assert.equal(result.results[0].primaryArtists, "K-391, Alan Walker");
-    assert.equal(result.results[0].artist, "K-391, Alan Walker");
-    assert.equal(result.results[0].downloadUrl[1].url, "https://audio.example.test/320.mp4");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-});
-
-test("uses the canonical Jio search adapter for artist-qualified full-track lookup", async () => {
-  const originalFetch = globalThis.fetch;
-  const requestedUrls = [];
-  globalThis.fetch = async (input) => {
-    requestedUrls.push(String(input));
-    return new Response(JSON.stringify({
+  const result = await searchSongs("Ignite", 0, 1, {
+    fetcher: async () => new Response(JSON.stringify({
       success: true,
       data: {
         total: 1,
-        start: -49,
-        results: [{
-          id: "4RmwbCw4",
-          name: "Cheap Thrills",
-          duration: 210,
-          language: "english",
-          album: { name: "This Is Acting" },
-          artists: {
-            primary: [{ name: "Sia", role: "primary_artists" }],
-            featured: [],
-            all: [
-              { name: "Sia Furler", role: "music" },
-              { name: "Sia", role: "singer" },
-            ],
-          },
-          downloadUrl: [{
-            quality: "320kbps",
-            url: "https://audio.example.test/cheap-thrills-320.mp4",
-          }],
-        }],
+        start: 1,
+        results: [documentedSong],
       },
-    }), { headers: { "content-type": "application/json" } });
-  };
+    }), {
+      headers: { "content-type": "application/json" },
+    }),
+  });
 
-  try {
-    const result = await searchSongs("Cheap Thrills Sia", 0, 20);
-    assert.match(requestedUrls[0], /saavnapi-six\.vercel\.app\/api\/search\/songs/);
-    assert.equal(result.results[0].primaryArtists, "Sia");
-    assert.equal(result.results[0].downloadUrl[0].url, "https://audio.example.test/cheap-thrills-320.mp4");
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
+  assert.equal(result.results[0].primaryArtists, "K-391, Alan Walker");
+  assert.equal(result.results[0].artist, "K-391, Alan Walker");
+  assert.equal(result.results[0].downloadUrl[1].url, "https://audio.example.test/320.mp4");
+});
+
+test("uses the canonical Jio search adapter for artist-qualified full-track lookup", async () => {
+  const requestedUrls = [];
+  const result = await searchSongs("Cheap Thrills Sia", 0, 20, {
+    fetcher: async (input) => {
+      requestedUrls.push(String(input));
+      return new Response(JSON.stringify({
+        success: true,
+        data: {
+          total: 1,
+          start: -49,
+          results: [{
+            id: "4RmwbCw4",
+            name: "Cheap Thrills",
+            duration: 210,
+            language: "english",
+            album: { name: "This Is Acting" },
+            artists: {
+              primary: [{ name: "Sia", role: "primary_artists" }],
+              featured: [],
+              all: [
+                { name: "Sia Furler", role: "music" },
+                { name: "Sia", role: "singer" },
+              ],
+            },
+            downloadUrl: [{
+              quality: "320kbps",
+              url: "https://audio.example.test/cheap-thrills-320.mp4",
+            }],
+          }],
+        },
+      }), { headers: { "content-type": "application/json" } });
+    },
+  });
+
+  assert.match(requestedUrls[0], /saavnapi-six\.vercel\.app\/api\/search\/songs/);
+  assert.equal(result.results[0].primaryArtists, "Sia");
+  assert.equal(result.results[0].downloadUrl[0].url, "https://audio.example.test/cheap-thrills-320.mp4");
 });
 
 test("resolves a later Jio query variant to a full-length download before preview", async () => {

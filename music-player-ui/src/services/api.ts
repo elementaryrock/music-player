@@ -156,14 +156,21 @@ const prepareSearchQuery = (originalQuery: string): string => {
   return originalQuery;
 };
 
+export interface SearchSongsOptions {
+  /** Injectable transport for deterministic tests and controlled app hosts. */
+  fetcher?: typeof fetch;
+}
+
 export const searchSongs = async (
   query: string,
   page: number = 0,
-  limit: number = 20 // Increased limit for better results
+  limit: number = 20, // Increased limit for better results
+  options: SearchSongsOptions = {}
 ): Promise<any> => {
   // Try each API endpoint until one works
   let attemptsLeft = API_ENDPOINTS.length;
   const enhancedQuery = prepareSearchQuery(query);
+  const fetcher = options.fetcher ?? globalThis.fetch;
 
   console.log(`Original query: "${query}", Enhanced query: "${enhancedQuery}"`);
 
@@ -178,7 +185,7 @@ export const searchSongs = async (
       const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
       // Add sort=popularity and language=all parameters for better results
-      const response = await fetch(
+      const response = await fetcher(
         `${API_BASE_URL}/search/songs?query=${encodeURIComponent(
           enhancedQuery
         )}&page=${page}&limit=${limit}&sort=popularity&language=all`,

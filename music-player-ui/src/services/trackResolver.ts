@@ -12,6 +12,7 @@ import {
   buildJioSearchQueries,
   getJioArtistText,
   getJioAudioUrl as getJioAudioUrlFromData,
+  getJioAudioQuality,
   getJioPlayableArtistNames,
   isJioVersionSafe,
   jioArtistMatchScore,
@@ -597,7 +598,7 @@ const tryJioSaavn = async (
   return createResult(
     best.url,
     "jiosaavn",
-    "standard",
+    getJioAudioQuality(best.candidate),
     best.match,
     providerId,
     getTrackProviderMetadata("jiosaavn", best.candidate, providerId, getJioIsrc(best.candidate))

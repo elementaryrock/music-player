@@ -394,3 +394,21 @@ export const getJioAudioUrl = (song: Record<string, unknown>): string | undefine
   return candidates
     .sort((left, right) => qualityValue(right.quality) - qualityValue(left.quality))[0]?.url;
 };
+
+/** Map a selected JioSaavn download quality to the player quality vocabulary. */
+export const getJioAudioQuality = (song: Record<string, unknown>): "high" | "standard" => {
+  if (asNonEmptyString(song.audioUrl) || asNonEmptyString(song.audioSrc)) return "standard";
+  if (typeof song.downloadUrl === "string") return "standard";
+  if (!Array.isArray(song.downloadUrl)) return "standard";
+
+  const qualityValue = (quality: unknown): number => {
+    const match = asNonEmptyString(quality)?.match(/(\d+)\s*kbps/i);
+    return match ? Number(match[1]) : 0;
+  };
+  const bestQuality = song.downloadUrl.reduce(
+    (best, item) => Math.max(best, qualityValue(asRecord(item)?.quality)),
+    0,
+  );
+
+  return bestQuality >= 256 ? "high" : "standard";
+};
