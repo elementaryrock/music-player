@@ -186,6 +186,7 @@ function Artwork({ src, title, tone = "lavender", className = "", initials }: Ar
 }
 
 type IconName =
+  | "glass"
   | "music"
   | "search"
   | "home"
@@ -207,6 +208,9 @@ type IconName =
   | "moon"
   | "expand"
   | "chevron-right"
+  | "sidebar-collapse"
+  | "sidebar-expand"
+  | "close"
   | "plus"
   | "more";
 
@@ -219,6 +223,10 @@ function Icon({ name, size = 18 }: IconProps) {
   let content: ReactNode;
 
   switch (name) {
+    case "glass":
+      // Reuse the geometry of /glass-player-logo.svg without its color/glow layers.
+      content = <g transform="scale(0.046875)"><path d="M365 119C316 77 250 62 188 80 99 106 45 188 55 279c10 91 83 160 175 166 94 6 176-50 204-137 6-19 8-39 6-59H270" strokeWidth="78" /><path d="M213 178 327 256 213 334Z" fill="currentColor" stroke="none" /></g>;
+      break;
     case "music":
       content = <><path d="M9 18V5l10-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="16" cy="16" r="3" /></>;
       break;
@@ -282,6 +290,15 @@ function Icon({ name, size = 18 }: IconProps) {
     case "chevron-right":
       content = <path d="m9 5 7 7-7 7" />;
       break;
+    case "sidebar-collapse":
+      content = <><path d="M4.5 5v14M20 12H9" /><path d="m13 8-4 4 4 4" /></>;
+      break;
+    case "sidebar-expand":
+      content = <><path d="M19.5 5v14M4 12h11" /><path d="m11 8 4 4-4 4" /></>;
+      break;
+    case "close":
+      content = <path d="m6 6 12 12M18 6 6 18" />;
+      break;
     case "plus":
       content = <><path d="M12 5v14M5 12h14" /></>;
       break;
@@ -321,10 +338,12 @@ function BrowseNav({
   activeSection,
   onSelect,
   mobile = false,
+  collapsed = false,
 }: {
   activeSection: BrowseSection;
   onSelect: (section: BrowseSection) => void;
   mobile?: boolean;
+  collapsed?: boolean;
 }) {
   return (
     <nav className={mobile ? "apple-mobile-nav" : "apple-primary-nav"} aria-label="Main navigation">
@@ -334,10 +353,12 @@ function BrowseNav({
           type="button"
           className={`apple-nav-item ${activeSection === label ? "is-active" : ""}`}
           aria-current={activeSection === label ? "page" : undefined}
+          aria-label={collapsed && !mobile ? label : undefined}
+          title={collapsed && !mobile ? label : undefined}
           onClick={() => onSelect(label)}
         >
-          <Icon name={icon} size={mobile ? 20 : 18} />
-          <span>{label}</span>
+          <Icon name={icon} size={mobile ? 20 : 17} />
+          <span className="apple-nav-text">{label}</span>
         </button>
       ))}
     </nav>
@@ -370,9 +391,11 @@ export function BrowseShell({
   onNavigate,
   onVolumeChange,
   volume,
-  profileName = "Alex Morgan",
 }: BrowseShellProps) {
   const [activeSection, setActiveSection] = useState<BrowseSection>("New");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isCollectionExpanded, setIsCollectionExpanded] = useState(false);
+  const [isDiscoveryVisible, setIsDiscoveryVisible] = useState(true);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window === "undefined") return "light";
     try {
@@ -384,6 +407,7 @@ export function BrowseShell({
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
   const [localVolume, setLocalVolume] = useState(volume ?? 0.72);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (volume !== undefined) setLocalVolume(volume);
@@ -411,6 +435,11 @@ export function BrowseShell({
     } else {
       onSelectTrack(item);
     }
+  };
+
+  const dismissDiscovery = () => {
+    setIsDiscoveryVisible(false);
+    sidebarRef.current?.querySelector<HTMLButtonElement>(".apple-primary-nav [aria-current='page']")?.focus();
   };
 
   const isCuratedSection = !searchQuery.trim() && (activeSection === "Home" || activeSection === "New");
@@ -472,47 +501,93 @@ export function BrowseShell({
 
   return (
     <div className={`apple-browse-shell ${theme === "dark" ? "apple-browse-shell--dark" : ""}`} data-theme={theme}>
-      <div className="apple-shell-layout">
-        <aside className="apple-sidebar" aria-label="Glass Player sidebar">
-          <div className="apple-brand-lockup">
-            <span className="apple-brand-mark">
-              <img src="/glass-player-logo.svg" alt="" aria-hidden="true" />
-            </span>
-            <span className="apple-brand-name">
-              <strong>Glass</strong>
-              <small>Player</small>
-            </span>
-          </div>
-
-          <BrowseNav activeSection={activeSection} onSelect={selectSection} />
-
-          <div className="apple-sidebar-section">
-            <p className="apple-sidebar-label">Library</p>
-            <button type="button" className="apple-sidebar-link"><Icon name="library" size={17} /><span>Recently Added</span></button>
-            <button type="button" className="apple-sidebar-link"><Icon name="music" size={17} /><span>Artists</span></button>
-            <button type="button" className="apple-sidebar-link"><Icon name="library" size={17} /><span>Albums</span></button>
-            <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={17} /><span>Songs</span></button>
-          </div>
-
-          <div className="apple-sidebar-section apple-playlist-section">
-            <div className="apple-sidebar-label-row">
-              <p className="apple-sidebar-label">Playlists</p>
-              <button type="button" className="apple-icon-button apple-icon-button--tiny" aria-label="Create playlist" title="Create playlist">
-                <Icon name="plus" size={14} />
-              </button>
+      <div className={`apple-shell-layout ${isSidebarCollapsed ? "apple-shell-layout--collapsed" : ""}`.trim()}>
+        <aside
+          ref={sidebarRef}
+          className={`apple-sidebar ${isSidebarCollapsed ? "apple-sidebar--collapsed" : ""}`.trim()}
+          aria-label="Glass Player sidebar"
+        >
+          <header className="apple-sidebar-header">
+            <div className="apple-brand-lockup" role="img" aria-label="Glass Player">
+              <span className="apple-brand-mark"><Icon name="glass" size={24} /></span>
+              <span className="apple-brand-name" aria-hidden="true">Glass <small>Player</small></span>
             </div>
-            <button type="button" className="apple-sidebar-link"><span className="playlist-dot playlist-dot--sunset" /><span>Sunday Morning</span></button>
-            <button type="button" className="apple-sidebar-link"><span className="playlist-dot playlist-dot--blue" /><span>Focus Flow</span></button>
-            <button type="button" className="apple-sidebar-link"><span className="playlist-dot playlist-dot--mint" /><span>Favorites Mix</span></button>
-            <button type="button" className="apple-sidebar-link"><span className="playlist-dot playlist-dot--lavender" /><span>Late Night</span></button>
-          </div>
-
-          <div className="apple-profile-card">
-            <span className="apple-profile-avatar" aria-hidden="true">{getInitials(profileName, "AM")}</span>
-            <span className="apple-profile-copy"><strong>{profileName}</strong><small>Personal account</small></span>
-            <button type="button" className="apple-icon-button apple-icon-button--tiny" aria-label="Open account menu" title="Account menu">
-              <Icon name="more" size={16} />
+            <button
+              type="button"
+              className="apple-sidebar-icon-button"
+              aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              aria-expanded={!isSidebarCollapsed}
+              aria-controls="apple-sidebar-content"
+              onClick={() => setIsSidebarCollapsed((collapsed) => !collapsed)}
+            >
+              <Icon name={isSidebarCollapsed ? "sidebar-expand" : "sidebar-collapse"} size={16} />
             </button>
+          </header>
+
+          <div className="apple-sidebar-scroll" id="apple-sidebar-content">
+            <BrowseNav activeSection={activeSection} onSelect={selectSection} collapsed={isSidebarCollapsed} />
+
+            <section className="apple-sidebar-collection" aria-label="Collection">
+              <button
+                type="button"
+                className="apple-sidebar-link apple-collection-toggle"
+                aria-expanded={!isSidebarCollapsed && isCollectionExpanded}
+                aria-controls="apple-collection-links"
+                aria-label={isSidebarCollapsed ? "Open collection" : undefined}
+                title={isSidebarCollapsed ? "Open collection" : undefined}
+                onClick={() => {
+                  if (isSidebarCollapsed) {
+                    setIsSidebarCollapsed(false);
+                    setIsCollectionExpanded(true);
+                  } else {
+                    setIsCollectionExpanded((expanded) => !expanded);
+                  }
+                }}
+              >
+                <Icon name="library" size={17} />
+                <span className="apple-nav-text">Collection</span>
+                <span className="apple-collection-chevron"><Icon name="chevron-right" size={12} /></span>
+              </button>
+              <div className="apple-collection-links" id="apple-collection-links" hidden={isSidebarCollapsed || !isCollectionExpanded}>
+                <button type="button" className="apple-sidebar-link"><Icon name="library" size={15} /><span>Recently Added</span></button>
+                <button type="button" className="apple-sidebar-link"><Icon name="music" size={15} /><span>Artists</span></button>
+                <button type="button" className="apple-sidebar-link"><Icon name="library" size={15} /><span>Albums</span></button>
+                <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={15} /><span>Songs</span></button>
+              </div>
+            </section>
+
+            {!isSidebarCollapsed && (
+              <section className="apple-playlist-section" aria-labelledby="apple-playlists-heading">
+                <div className="apple-sidebar-label-row">
+                  <h2 className="apple-sidebar-label" id="apple-playlists-heading">All playlists</h2>
+                  <button type="button" className="apple-sidebar-icon-button" aria-label="Create playlist" title="Create playlist">
+                    <Icon name="plus" size={14} />
+                  </button>
+                </div>
+                <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Sunday Morning</span></button>
+                <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Focus Flow</span></button>
+                <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Favorites Mix</span></button>
+                <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Late Night</span></button>
+              </section>
+            )}
+
+            {!isSidebarCollapsed && isDiscoveryVisible && (
+              <section className="apple-sidebar-discovery" aria-labelledby="apple-discovery-heading">
+                <button
+                  type="button"
+                  className="apple-sidebar-icon-button apple-discovery-dismiss"
+                  aria-label="Dismiss music discovery"
+                  title="Dismiss music discovery"
+                  onClick={dismissDiscovery}
+                >
+                  <Icon name="close" size={13} />
+                </button>
+                <h2 id="apple-discovery-heading">Find your next favorite</h2>
+                <p>Discover artists, albums, and songs you'll love.</p>
+                <button type="button" className="apple-discovery-explore" onClick={() => selectSection("Home")}>Explore music</button>
+              </section>
+            )}
           </div>
         </aside>
 
