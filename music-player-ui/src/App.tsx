@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type SyntheticEvent,
 } from "react";
 import "./App.css";
 import "./background.css";
@@ -45,6 +46,8 @@ type AppTrack = Track & {
   playbackKind?: "full" | "preview";
   previewUrl?: string;
 };
+
+const PREVIEW_FALLBACK_DURATION_SECONDS = 30;
 
 const isPreviewTrack = (track: Track | null): boolean => {
   if (!track) return false;
@@ -88,6 +91,57 @@ const sourceLabel = (track: Track | null): string => {
   }
 };
 
+type PlaybackState = "local" | "full" | "preview" | "unverified";
+
+const playbackState = (track: Track | null): PlaybackState => {
+  if (!track) return "local";
+  if (isPreviewTrack(track)) return "preview";
+
+  const source = track.streamResolution?.source ?? track.source;
+  if (source === "local") return "local";
+  return track.streamResolution && (source === "tidal" || source === "jiosaavn")
+    ? "full"
+    : "unverified";
+};
+
+const playbackStateLabel = (track: Track | null): string => {
+  switch (playbackState(track)) {
+    case "preview":
+      return `Preview · ${sourceLabel(track)}`;
+    case "full":
+      return `Full · ${sourceLabel(track)}`;
+    case "unverified":
+      return `Unverified · ${sourceLabel(track)}`;
+    default:
+      return "Local file";
+  }
+};
+
+/**
+ * A provider's metadata duration describes the recording, not an iTunes
+ * sample. Do not use it as the progress-bar duration until the audio element
+ * reports its real duration; the explicit fallback is the known Apple sample
+ * limit rather than the several-minute metadata value.
+ */
+const initialPlaybackDuration = (track: Track | null): number => {
+  if (!track) return 0;
+  if (isPreviewTrack(track)) return PREVIEW_FALLBACK_DURATION_SECONDS;
+
+  return typeof track.duration === "number" && Number.isFinite(track.duration)
+    ? Math.max(0, track.duration)
+    : 0;
+};
+
+const mediaPlaybackDuration = (track: Track | null, mediaDuration: number): number => {
+  if (!Number.isFinite(mediaDuration) || mediaDuration <= 0) {
+    return initialPlaybackDuration(track);
+  }
+
+  return isPreviewTrack(track)
+    ? Math.min(mediaDuration, PREVIEW_FALLBACK_DURATION_SECONDS)
+    : mediaDuration;
+};
+
 const toTrack = (result: SearchResult): AppTrack => ({
   // Preserve any preview metadata added by the discovery/resolver contract.
   // Explicit fields below keep the existing Track shape canonical.
@@ -128,6 +182,10 @@ function App() {
   const [isResolving, setIsResolving] = useState(false);
   const [appError, setAppError] = useState<string | null>(null);
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
+  const [pendingResolution, setPendingResolution] = useState<{
+    title: string;
+    artist: string;
+  } | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -137,6 +195,7 @@ function App() {
   const audioRef = useRef<HTMLAudioElement>(null);
   const searchRequestRef = useRef(0);
   const resolutionAbortRef = useRef<AbortController | null>(null);
+  const resolutionRequestRef = useRef(0);
   const retryRef = useRef<(() => void) | null>(null);
   const mediaGenerationRef = useRef(0);
   const pendingPlayRef = useRef(false);
@@ -150,6 +209,14 @@ function App() {
   );
   const isLiked = currentTrack ? favoriteIds.has(currentTrack.id) : false;
   const displayError = appError || searchError;
+
+  const invalidatePendingResolution = useCallback(() => {
+    resolutionRequestRef.current += 1;
+    resolutionAbortRef.current?.abort();
+    resolutionAbortRef.current = null;
+    setIsResolving(false);
+    setPendingResolution(null);
+  }, []);
 
   const attemptPlayback = useCallback((generation: number) => {
     const audio = audioRef.current;
@@ -203,6 +270,12 @@ function App() {
   }, [currentTrack?.audioSrc]);
 
   const commitTrack = useCallback((track: Track, shouldPlay = true) => {
+    // Queue navigation, local tracks, and a successful resolver commit all
+    // invalidate any older request. This closes the gap where an abort-aware
+    // provider still resolves after the user has already selected something
+    // else.
+    invalidatePendingResolution();
+    retryRef.current = null;
     setPlaylist((currentPlaylist) => {
       const existingIndex = currentPlaylist.findIndex((item) => item.id === track.id);
       if (existingIndex === -1) return [...currentPlaylist, track];
@@ -214,9 +287,10 @@ function App() {
     setCurrentTrack(track);
     setIsPlaying(shouldPlay);
     setCurrentTime(0);
+    setDuration(initialPlaybackDuration(track));
     setAppError(null);
     setPlaybackNotice(null);
-  }, []);
+  }, [invalidatePendingResolution]);
 
   const handleSearch = useCallback(async (query: string) => {
     const trimmedQuery = query.trim();
@@ -258,16 +332,26 @@ function App() {
   }, []);
 
   const handleResultSelect = useCallback(async (result: SearchResult) => {
+    const requestId = resolutionRequestRef.current + 1;
+    resolutionRequestRef.current = requestId;
     resolutionAbortRef.current?.abort();
     const controller = new AbortController();
     resolutionAbortRef.current = controller;
     setIsResolving(true);
+    setPendingResolution({ title: result.title, artist: result.artist });
+    // Do not let the previously selected track keep playing while the new
+    // selection is being verified. It must not look like the new result was
+    // silently mapped to the old audio source.
+    setIsPlaying(false);
     setAppError(null);
     setPlaybackNotice(null);
     setSearchError(null);
     retryRef.current = () => {
-      void handleResultSelect(result);
+      if (requestId === resolutionRequestRef.current) void handleResultSelect(result);
     };
+
+    const isCurrentResolution = () =>
+      requestId === resolutionRequestRef.current && !controller.signal.aborted;
 
     try {
       const metadataTrack = toTrack(result);
@@ -276,12 +360,22 @@ function App() {
         timeoutMs: 8000,
       });
 
-      if (controller.signal.aborted) return;
+      if (!isCurrentResolution()) return;
       if (!resolved) {
-        throw new Error("No verified Tidal or JioSaavn stream, or matching iTunes preview, was available.");
+        throw new Error(
+          "No verified Tidal or JioSaavn full stream matched this recording, and no matching iTunes preview was available.",
+        );
       }
 
       const resolvedPreview = resolved.isPreview || resolved.source === "itunes";
+      const verifiedPreview = resolved.source === "itunes" && resolved.isPreview === true;
+      const verifiedFull =
+        (resolved.source === "tidal" || resolved.source === "jiosaavn") && resolved.isPreview === false;
+      if ((resolvedPreview && !verifiedPreview) || (!resolvedPreview && !verifiedFull)) {
+        throw new Error("The provider returned an unverified playback URL, so playback was not started.");
+      }
+
+      if (!isCurrentResolution()) return;
       const resolvedTrack: AppTrack = {
         ...metadataTrack,
         audioSrc: resolved.audioSrc,
@@ -294,33 +388,36 @@ function App() {
       };
       commitTrack(resolvedTrack, true);
       if (resolvedPreview) {
-        setPlaybackNotice("Preview only · playing a short iTunes preview because no verified full stream was available.");
+        setPlaybackNotice(
+          `Preview only · iTunes sample (up to ${PREVIEW_FALLBACK_DURATION_SECONDS}s). No verified full stream from Tidal or JioSaavn was available for this recording.`,
+        );
       }
       setSearchQuery("");
       setSearchResults([]);
     } catch (error) {
-      if (controller.signal.aborted) return;
+      if (!isCurrentResolution()) return;
       const message = error instanceof Error ? error.message : "Unable to play this result";
+      setIsPlaying(false);
+      setPlaybackNotice(null);
       setAppError(`This song couldn't be played safely. ${message}`);
     } finally {
-      if (resolutionAbortRef.current === controller) {
+      if (requestId === resolutionRequestRef.current && resolutionAbortRef.current === controller) {
         resolutionAbortRef.current = null;
         setIsResolving(false);
+        setPendingResolution(null);
       }
     }
   }, [commitTrack]);
 
   const handleSelectTrack = useCallback((track: Track) => {
-    resolutionAbortRef.current?.abort();
-    setIsResolving(false);
     commitTrack(track, true);
   }, [commitTrack]);
 
   const handlePlayPause = useCallback(() => {
-    if (!currentTrack) return;
+    if (!currentTrack || isResolving) return;
     setAppError(null);
     setIsPlaying((playing) => !playing);
-  }, [currentTrack]);
+  }, [currentTrack, isResolving]);
 
   const handleNext = useCallback(() => {
     const nextTrack = currentTrackIndex >= 0 ? playlist[currentTrackIndex + 1] : undefined;
@@ -340,11 +437,16 @@ function App() {
   }, [commitTrack, currentTime, currentTrackIndex, playlist]);
 
   const handleSeekTo = useCallback((time: number) => {
-    const nextTime = Number.isFinite(time) ? Math.max(0, time) : 0;
+    const maxDuration = isPreviewTrack(currentTrack)
+      ? PREVIEW_FALLBACK_DURATION_SECONDS
+      : duration > 0
+        ? duration
+        : Number.POSITIVE_INFINITY;
+    const nextTime = Number.isFinite(time) ? Math.min(maxDuration, Math.max(0, time)) : 0;
     const audio = audioRef.current;
     if (audio) audio.currentTime = nextTime;
     setCurrentTime(nextTime);
-  }, []);
+  }, [currentTrack, duration]);
 
   const handleSeek = useCallback((event: ChangeEvent<HTMLInputElement>) => {
     handleSeekTo(Number(event.target.value));
@@ -421,7 +523,7 @@ function App() {
     // or remote source does not turn the requested next-track play into pause.
     audio.pause();
     setCurrentTime(0);
-    setDuration(currentTrack?.duration ?? 0);
+    setDuration(initialPlaybackDuration(currentTrack));
 
     if (!source) {
       audio.removeAttribute("src");
@@ -491,6 +593,13 @@ function App() {
     };
   }, [handleCloseImmersive, showImmersive]);
 
+  const handleAudioDuration = useCallback((event: SyntheticEvent<HTMLAudioElement>) => {
+    const source = currentTrack?.audioSrc?.trim() || "";
+    if (!source || activeAudioSourceRef.current !== source) return;
+
+    setDuration(mediaPlaybackDuration(currentTrack, event.currentTarget.duration));
+  }, [currentTrack]);
+
   useEffect(() => () => {
     resolutionAbortRef.current?.abort();
     pendingPlayRef.current = false;
@@ -535,11 +644,18 @@ function App() {
 
       {currentTrack && (
         <div className="app-stream-badge" aria-live="polite">
+          {isResolving && pendingResolution ? (
+            <span className="app-playback-state app-playback-state--resolving">
+              Verifying full stream · {pendingResolution.title}
+            </span>
+          ) : (
+            <span className={`app-playback-state app-playback-state--${playbackState(currentTrack)}`}>
+              {playbackStateLabel(currentTrack)}
+            </span>
+          )}
           <span className={`app-quality-badge app-quality-badge--${qualityLabel(currentTrack).toLowerCase().replace(/[^a-z]+/g, "-")}`}>
             {qualityLabel(currentTrack)}
           </span>
-          <span className="app-source-badge">{sourceLabel(currentTrack)}</span>
-          {isResolving && <span className="app-resolving-badge">Verifying stream…</span>}
         </div>
       )}
 
@@ -548,9 +664,13 @@ function App() {
         className="app-audio"
         src={currentTrack?.audioSrc || undefined}
         preload="metadata"
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-        onLoadedMetadata={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
-        onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+        onTimeUpdate={(event) => setCurrentTime(
+          isPreviewTrack(currentTrack)
+            ? Math.min(event.currentTarget.currentTime, PREVIEW_FALLBACK_DURATION_SECONDS)
+            : event.currentTarget.currentTime,
+        )}
+        onLoadedMetadata={handleAudioDuration}
+        onDurationChange={handleAudioDuration}
         onPlay={() => setIsPlaying(true)}
         onPause={() => {
           if (mediaTransitionRef.current || pendingPlayRef.current && (audioRef.current?.readyState ?? 0) < 1) return;

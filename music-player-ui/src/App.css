@@ -35,6 +35,7 @@ input:focus-visible {
   right: 32px;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 7px;
   max-width: min(42vw, 390px);
   padding: 6px 8px;
@@ -48,6 +49,43 @@ input:focus-visible {
   letter-spacing: 0.07em;
   text-transform: uppercase;
   backdrop-filter: blur(18px) saturate(130%);
+}
+
+.app-playback-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  max-width: min(42vw, 250px);
+  overflow: hidden;
+  padding: 3px 7px;
+  border-radius: 999px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-playback-state--local {
+  color: #61636c;
+  background: rgba(242, 243, 247, 0.95);
+}
+
+.app-playback-state--full {
+  color: #1b7b68;
+  background: #e8f8f1;
+}
+
+.app-playback-state--preview {
+  color: #8a4c18;
+  background: #fff1d9;
+}
+
+.app-playback-state--unverified {
+  color: #8d3346;
+  background: #fff0f2;
+}
+
+.app-playback-state--resolving {
+  color: #5e43a8;
+  background: #eee9ff;
 }
 
 .app-quality-badge,
@@ -267,6 +305,10 @@ input:focus-visible {
     right: 14px;
     max-width: calc(100vw - 28px);
     font-size: 9px;
+  }
+
+  .app-playback-state {
+    max-width: calc(100vw - 74px);
   }
 
   .app-error {

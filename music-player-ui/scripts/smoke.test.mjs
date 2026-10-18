@@ -23,10 +23,18 @@ test("the app keeps discovery and stream resolution separate", async () => {
   assert.match(app, /sources: \["tidal", "itunes"\]/);
   assert.match(app, /resolveTrackStream\(metadataTrack/);
   assert.match(app, /resolved\.isPreview \|\| resolved\.source === "itunes"/);
+  assert.match(app, /const resolutionRequestRef = useRef\(0\)/);
+  assert.match(app, /const isCurrentResolution = \(\) =>/);
+  assert.match(app, /verifiedPreview = resolved\.source === "itunes" && resolved\.isPreview === true/);
+  assert.match(app, /verifiedFull/);
   assert.match(app, /streamResolution: resolved/);
   assert.match(app, /isPreview: resolvedPreview/);
   assert.match(app, /isPreview: result\.isPreview/);
   assert.match(app, /Preview only/);
+  assert.match(app, /PREVIEW_FALLBACK_DURATION_SECONDS = 30/);
+  assert.match(app, /initialPlaybackDuration/);
+  assert.match(app, /mediaPlaybackDuration/);
+  assert.match(app, /app-playback-state--\$\{playbackState\(currentTrack\)\}/);
   assert.match(app, /src=\{currentTrack\?\.audioSrc/);
 });
 
