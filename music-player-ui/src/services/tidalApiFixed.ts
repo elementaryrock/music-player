@@ -558,9 +558,13 @@ export const searchAndGetTidalSongs = async (
 
   const tracks: Track[] = [];
   for (const searchTrack of searchResults.items.slice(0, Math.max(0, limit))) {
-    const trackData = await getTidalTrackById(searchTrack.id, quality);
-    if (trackData?.OriginalTrackUrl) {
-      tracks.push(convertTidalTrackToTrack(searchTrack, trackData.OriginalTrackUrl));
+    try {
+      const trackData = await getTidalTrackById(searchTrack.id, quality);
+      if (trackData?.OriginalTrackUrl) {
+        tracks.push(convertTidalTrackToTrack(searchTrack, trackData.OriginalTrackUrl));
+      }
+    } catch {
+      // A malformed optional-provider item must not reject the whole result.
     }
   }
   return tracks;
@@ -578,15 +582,23 @@ export const searchTidalSongDirect = async (
   const firstResult = searchResults?.items?.[0];
   if (!firstResult) return null;
 
-  const trackData = await getTidalTrackById(firstResult.id, quality);
-  if (!trackData?.OriginalTrackUrl) return null;
+  try {
+    const trackData = await getTidalTrackById(firstResult.id, quality);
+    if (!trackData?.OriginalTrackUrl) return null;
 
-  const track = convertTidalTrackToTrack(firstResult, trackData.OriginalTrackUrl);
-  const lyricsData = await getTidalLyrics(firstResult.id);
-  if (lyricsData?.subtitles && typeof btoa === "function") {
-    track.lrcUrl = `data:text/plain;base64,${btoa(lyricsData.subtitles)}`;
+    const track = convertTidalTrackToTrack(firstResult, trackData.OriginalTrackUrl);
+    const lyricsData = await getTidalLyrics(firstResult.id);
+    if (lyricsData?.subtitles && typeof btoa === "function") {
+      try {
+        track.lrcUrl = `data:text/plain;base64,${btoa(lyricsData.subtitles)}`;
+      } catch {
+        // Lyrics are optional; an encoding failure must not hide the track.
+      }
+    }
+    return track;
+  } catch {
+    return null;
   }
-  return track;
 };
 
 /** Return a snapshot of the optional endpoint circuit state. */
