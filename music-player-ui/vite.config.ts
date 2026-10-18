@@ -1,74 +1,48 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    cors: true,
-    proxy: {
-      "/api/tidal": {
-        target: "https://hifi.401658.xyz",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/tidal/, ""),
-        secure: true,
-        configure: (proxy, _options) => {
-          proxy.on("error", (err, _req, _res) => {
-            console.log("HiFi Tidal proxy error:", err);
-          });
-          proxy.on("proxyReq", (proxyReq, req, _res) => {
-            console.log("Sending Request to HiFi Tidal:", req.method, req.url);
-          });
-          proxy.on("proxyRes", (proxyRes, req, _res) => {
-            console.log(
-              "Received Response from HiFi Tidal:",
-              proxyRes.statusCode,
-              req.url
-            );
-          });
+/**
+ * The historical Tidal proxy targets redirect to a GitHub repository (or no
+ * longer resolve), so they must not be installed by default.  A deployment
+ * can opt into a known-good proxy with VITE_TIDAL_PROXY_TARGET; the service
+ * then points at /api/tidal through VITE_TIDAL_API_URL.
+ */
+const isKnownUnavailableTarget = (target: string): boolean => {
+  try {
+    const hostname = new URL(target).hostname.toLowerCase();
+    return hostname === "hifi.401658.xyz" ||
+      hostname === "tidal.401658.xyz" ||
+      hostname === "api.allorigins.win" ||
+      hostname === "github.com";
+  } catch {
+    return false;
+  }
+};
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const configuredTarget = env.VITE_TIDAL_PROXY_TARGET?.trim();
+  const tidalProxy = configuredTarget && !isKnownUnavailableTarget(configuredTarget)
+    ? {
+        "/api/tidal": {
+          target: configuredTarget,
+          changeOrigin: true,
+          rewrite: (path: string) => path.replace(/^\/api\/tidal/, ""),
+          secure: true,
+          headers: {
+            Accept: "application/json",
+          },
         },
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-          Accept: "application/json, text/plain, */*",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Cache-Control": "no-cache",
-          Pragma: "no-cache",
-        },
-      },
-      "/api/tidal-backup": {
-        target: "https://tidal.401658.xyz",
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/tidal-backup/, ""),
-        secure: true,
-        configure: (proxy, _options) => {
-          proxy.on("error", (err, _req, _res) => {
-            console.log("Legacy Tidal proxy error:", err);
-          });
-          proxy.on("proxyReq", (proxyReq, req, _res) => {
-            console.log(
-              "Sending Request to Legacy Tidal:",
-              req.method,
-              req.url
-            );
-          });
-          proxy.on("proxyRes", (proxyRes, req, _res) => {
-            console.log(
-              "Received Response from Legacy Tidal:",
-              proxyRes.statusCode,
-              req.url
-            );
-          });
-        },
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-          Accept: "application/json, text/plain, */*",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Cache-Control": "no-cache",
-          Pragma: "no-cache",
-        },
-      },
+      }
+    : undefined;
+
+  return {
+    plugins: [react()],
+    server: {
+      cors: true,
+      // No Tidal proxy is created unless an explicit, non-legacy target is
+      // configured.  In particular, /api/tidal-backup is intentionally gone.
+      ...(tidalProxy ? { proxy: tidalProxy } : {}),
     },
-  },
+  };
 });

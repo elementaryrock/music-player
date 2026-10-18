@@ -1,14 +1,15 @@
 /**
- * Fixed Tidal API Service
- * 
- * This service provides a more robust implementation for interacting with Tidal API
- * with proper fallback mechanisms and CORS handling
+ * Optional Tidal API service.
+ *
+ * Tidal is a useful metadata/stream source, but it is not required for the
+ * rest of the player to work.  The public methods in this module therefore
+ * fail closed: an unavailable endpoint returns null/[] instead of making a
+ * search or a playback resolution wait for a chain of dead fallbacks.
  */
 
 import {
   TidalQuality,
   TidalSearchResponse,
-  TidalTrack,
   TidalSongResponse,
   TidalTrackResponse,
   TidalCoverResponse,
@@ -17,63 +18,17 @@ import {
   Track,
 } from "../types/tidal.types";
 
-// Enhanced endpoint configuration with multiple fallback strategies
+type TidalEndpointType = "proxy" | "direct";
+
 interface TidalEndpoint {
   url: string;
-  type: 'proxy' | 'direct' | 'cors-proxy';
+  type: TidalEndpointType;
   name: string;
-  headers?: Record<string, string>;
+  /** Keep browser requests CORS-simple.  Content-Type/User-Agent trigger or
+   * are forbidden in browser preflight requests and are not needed for GET. */
+  headers: Record<string, string>;
 }
 
-const TIDAL_ENDPOINTS: TidalEndpoint[] = [
-  // Development proxy endpoints (only work with Vite dev server)
-  {
-    url: "/api/tidal",
-    type: 'proxy',
-    name: 'Vite Proxy (HiFi)',
-  },
-  {
-    url: "/api/tidal-backup", 
-    type: 'proxy',
-    name: 'Vite Proxy (Legacy)',
-  },
-  // Direct API endpoints with CORS handling - NEW HiFi endpoint
-  {
-    url: "https://hifi.401658.xyz",
-    type: 'direct',
-    name: 'HiFi API (Primary)',
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    },
-  },
-  // Legacy endpoint as fallback
-  {
-    url: "https://tidal.401658.xyz",
-    type: 'direct',
-    name: 'Legacy API (Fallback)',
-    headers: {
-      'Accept': 'application/json',
-      'Content-Type': 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    },
-  },
-  // CORS proxy as last resort
-  {
-    url: "https://api.allorigins.win/raw?url=" + encodeURIComponent("https://hifi.401658.xyz"),
-    type: 'cors-proxy',
-    name: 'CORS Proxy (HiFi)',
-    headers: {
-      'Accept': 'application/json',
-    },
-  },
-];
-
-let currentEndpointIndex = 0;
-let currentEndpoint = TIDAL_ENDPOINTS[currentEndpointIndex];
-
-// Connection health tracking
 interface ConnectionHealth {
   endpoint: string;
   lastSuccess: number | null;
@@ -82,10 +37,105 @@ interface ConnectionHealth {
   isHealthy: boolean;
 }
 
+interface ProbeFeatures {
+  search: boolean;
+  trackById: boolean;
+  streaming: boolean;
+}
+
+interface EndpointProbe {
+  responseTime: number;
+  features: ProbeFeatures;
+}
+
+const DEFAULT_TIDAL_ENDPOINT = "https://hifi.401658.xyz";
+
+// SearchEngine and the track resolver apply their own provider deadlines.  A
+// direct caller should get the same bounded behavior instead of inheriting a
+// 15 second timeout for every fallback.
+const REQUEST_TIMEOUT_MS = 1800;
+const OPERATION_TIMEOUT_MS = 2000;
+const DIAGNOSTIC_TIMEOUT_MS = 2200;
+const ENDPOINT_FAILURE_COOLDOWN_MS = 30_000;
+const MAX_ENDPOINT_ATTEMPTS = 2;
+
+const TIDAL_REQUEST_HEADERS = {
+  Accept: "application/json",
+};
+
+const readViteEnv = (): Record<string, unknown> => {
+  try {
+    return (
+      import.meta as ImportMeta & { env?: Record<string, unknown> }
+    ).env ?? {};
+  } catch {
+    // This keeps the service importable from non-Vite tooling as well.
+    return {};
+  }
+};
+
+const normalizeEndpointUrl = (value: string): string | null => {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed) return null;
+
+  // Only explicit HTTP(S) URLs and explicit same-origin proxy paths are
+  // accepted.  The old allorigins URL and the legacy DNS-failed host are never
+  // part of the default candidate list.
+  if (trimmed.startsWith("/")) {
+    return trimmed === "/api/tidal-backup" ? null : trimmed;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+    if (
+      parsed.hostname === "tidal.401658.xyz" ||
+      parsed.hostname === "api.allorigins.win"
+    ) {
+      return null;
+    }
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+};
+
+const readConfiguredEndpointUrls = (): string[] => {
+  const configured = readViteEnv().VITE_TIDAL_API_URL;
+  if (typeof configured !== "string") return [];
+
+  return configured
+    .split(",")
+    .map(normalizeEndpointUrl)
+    .filter((value): value is string => Boolean(value));
+};
+
+const endpointUrls = [
+  ...readConfiguredEndpointUrls(),
+  DEFAULT_TIDAL_ENDPOINT,
+]
+  .map(normalizeEndpointUrl)
+  .filter((value): value is string => Boolean(value))
+  .filter((value, index, values) => values.indexOf(value) === index);
+
+// The default list intentionally contains one endpoint.  A configured
+// endpoint can be supplied through VITE_TIDAL_API_URL (for example a known
+// good self-hosted proxy), and gets at most one bounded fallback attempt.
+const TIDAL_ENDPOINTS: TidalEndpoint[] = endpointUrls.map((url, index) => ({
+  url,
+  type: url.startsWith("/") ? "proxy" : "direct",
+  name: index === 0 && url !== DEFAULT_TIDAL_ENDPOINT
+    ? "Configured Tidal API"
+    : "HiFi API (optional)",
+  headers: TIDAL_REQUEST_HEADERS,
+}));
+
+let currentEndpointIndex = 0;
+let currentEndpoint = TIDAL_ENDPOINTS[0];
+
 const endpointHealth = new Map<string, ConnectionHealth>();
 
-// Initialize health tracking
-TIDAL_ENDPOINTS.forEach(endpoint => {
+TIDAL_ENDPOINTS.forEach((endpoint) => {
   endpointHealth.set(endpoint.url, {
     endpoint: endpoint.url,
     lastSuccess: null,
@@ -95,8 +145,246 @@ TIDAL_ENDPOINTS.forEach(endpoint => {
   });
 });
 
+const createError = (message: string, name = "Error"): Error => {
+  const error = new Error(message);
+  error.name = name;
+  return error;
+};
+
+const hasStreamingUrl = (data: unknown): boolean => {
+  const records = Array.isArray(data) ? data : [data];
+  return records.some((record) => {
+    if (!record || typeof record !== "object") return false;
+    const candidate = record as Record<string, unknown>;
+    return typeof candidate.OriginalTrackUrl === "string" &&
+      candidate.OriginalTrackUrl.length > 0;
+  });
+};
+
+const buildApiUrl = (endpoint: TidalEndpoint, path: string): string =>
+  `${endpoint.url}${path.startsWith("/") ? path : `/${path}`}`;
+
 /**
- * Enhanced connection test with detailed diagnostics and HiFi API validation
+ * Fetch JSON with both an AbortController and a Promise race.  The race keeps
+ * tests and unusual fetch implementations bounded even when an underlying
+ * request does not honor abort immediately.
+ */
+const fetchJson = async <T>(
+  endpoint: TidalEndpoint,
+  path: string,
+  options: RequestInit = {},
+  timeoutMs: number,
+): Promise<T> => {
+  const controller = new AbortController();
+  const sourceSignal = options.signal;
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let abortHandler: (() => void) | undefined;
+
+  if (sourceSignal?.aborted) {
+    throw createError("The Tidal request was aborted", "AbortError");
+  }
+
+  if (sourceSignal) {
+    abortHandler = () => controller.abort();
+    sourceSignal.addEventListener("abort", abortHandler, { once: true });
+  }
+
+  const requestHeaders = new Headers(options.headers);
+  requestHeaders.set("Accept", "application/json");
+  // All current Tidal calls are GETs.  Do not recreate the old JSON header
+  // that caused a browser CORS preflight against the redirecting host.
+  requestHeaders.delete("Content-Type");
+
+  const request = fetch(buildApiUrl(endpoint, path), {
+    ...options,
+    headers: requestHeaders,
+    signal: controller.signal,
+  });
+
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(createError("Tidal request timed out", "TimeoutError"));
+    }, Math.max(1, timeoutMs));
+  });
+
+  try {
+    const response = await Promise.race([request, timeout]);
+
+    // A redirect to GitHub (or any other unrelated origin) is a failed
+    // provider response, not a usable endpoint.  Refusing redirects also
+    // avoids turning a configured proxy into a CORS failure loop.
+    if (response.redirected || response.type === "opaqueredirect") {
+      throw createError("Tidal endpoint redirected", "RedirectError");
+    }
+
+    if (!response.ok) {
+      throw createError(
+        `Tidal endpoint returned HTTP ${response.status}: ${response.statusText || "Request failed"}`,
+        "HttpError",
+      );
+    }
+
+    return await response.json() as T;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+    if (sourceSignal && abortHandler) {
+      sourceSignal.removeEventListener("abort", abortHandler);
+    }
+  }
+};
+
+const updateEndpointHealth = (endpointUrl: string, success: boolean): void => {
+  const health = endpointHealth.get(endpointUrl);
+  if (!health) return;
+
+  const now = Date.now();
+  if (success) {
+    health.lastSuccess = now;
+    health.consecutiveFailures = 0;
+    health.isHealthy = true;
+    return;
+  }
+
+  health.lastFailure = now;
+  health.consecutiveFailures += 1;
+  health.isHealthy = false;
+};
+
+const endpointCanBeAttempted = (endpoint: TidalEndpoint, force = false): boolean => {
+  const health = endpointHealth.get(endpoint.url);
+  if (!health || force) return true;
+
+  if (
+    health.lastFailure !== null &&
+    Date.now() - health.lastFailure < ENDPOINT_FAILURE_COOLDOWN_MS
+  ) {
+    return false;
+  }
+
+  // The circuit is half-open after its cooldown.  A single request is then
+  // allowed to prove that the endpoint has recovered.
+  health.isHealthy = true;
+  return true;
+};
+
+const getEndpointCandidates = (force = false): TidalEndpoint[] => {
+  const orderedIndices = [
+    currentEndpointIndex,
+    ...TIDAL_ENDPOINTS.map((_, index) => index),
+  ];
+  const seen = new Set<number>();
+
+  return orderedIndices
+    .filter((index) => {
+      if (seen.has(index) || !TIDAL_ENDPOINTS[index]) return false;
+      seen.add(index);
+      return true;
+    })
+    .map((index) => TIDAL_ENDPOINTS[index])
+    .filter((endpoint): endpoint is TidalEndpoint =>
+      Boolean(endpoint) && endpointCanBeAttempted(endpoint, force)
+    );
+};
+
+const setCurrentEndpoint = (endpoint: TidalEndpoint): void => {
+  const index = TIDAL_ENDPOINTS.indexOf(endpoint);
+  if (index >= 0) {
+    currentEndpointIndex = index;
+    currentEndpoint = endpoint;
+  }
+};
+
+/**
+ * Make one bounded request.  Normal application requests skip an endpoint
+ * during its cooldown, so repeated searches do not keep hitting a dead host.
+ */
+const makeRobustRequest = async <T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> => {
+  const candidates = getEndpointCandidates(false).slice(0, MAX_ENDPOINT_ATTEMPTS);
+  if (candidates.length === 0) {
+    throw createError("Tidal is unavailable", "TidalUnavailableError");
+  }
+
+  const deadline = Date.now() + OPERATION_TIMEOUT_MS;
+  let lastError: Error | null = null;
+
+  for (const endpoint of candidates) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+
+    try {
+      const data = await fetchJson<T>(
+        endpoint,
+        path,
+        options,
+        Math.min(REQUEST_TIMEOUT_MS, remaining),
+      );
+      updateEndpointHealth(endpoint.url, true);
+      setCurrentEndpoint(endpoint);
+      return data;
+    } catch (error) {
+      lastError = error instanceof Error ? error : createError("Tidal request failed");
+      updateEndpointHealth(endpoint.url, false);
+    }
+  }
+
+  throw lastError ?? createError("Tidal is unavailable", "TidalUnavailableError");
+};
+
+const probeEndpoint = async (
+  endpoint: TidalEndpoint,
+  timeoutMs: number,
+  includeTrackCheck: boolean,
+): Promise<EndpointProbe> => {
+  const startTime = Date.now();
+  const deadline = startTime + timeoutMs;
+  const features: ProbeFeatures = {
+    search: false,
+    trackById: false,
+    streaming: false,
+  };
+
+  const searchData = await fetchJson<any>(
+    endpoint,
+    "/search/?s=test&limit=1",
+    {},
+    Math.max(1, deadline - Date.now()),
+  );
+  features.search = true;
+
+  const firstTrack = Array.isArray(searchData?.items)
+    ? searchData.items[0]
+    : undefined;
+  if (includeTrackCheck && firstTrack?.id !== undefined && Date.now() < deadline) {
+    try {
+      const trackData = await fetchJson<any>(
+        endpoint,
+        `/track/?id=${encodeURIComponent(String(firstTrack.id))}&quality=HIGH`,
+        {},
+        Math.max(1, deadline - Date.now()),
+      );
+      features.trackById = true;
+      features.streaming = hasStreamingUrl(trackData);
+    } catch {
+      // Search connectivity is still useful diagnostic information when the
+      // optional stream endpoint is unavailable.
+    }
+  }
+
+  return {
+    responseTime: Date.now() - startTime,
+    features,
+  };
+};
+
+/**
+ * Probe the configured endpoint(s) explicitly.  Unlike normal requests this
+ * bypasses the circuit cooldown because calling a diagnostic function is an
+ * intentional request to retry.  It is still limited to two endpoints and a
+ * short per-endpoint deadline.
  */
 export const testTidalApiConnection = async (): Promise<{
   success: boolean;
@@ -107,11 +395,7 @@ export const testTidalApiConnection = async (): Promise<{
     success: boolean;
     responseTime?: number;
     error?: string;
-    features?: {
-      search: boolean;
-      trackById: boolean;
-      streaming: boolean;
-    };
+    features?: ProbeFeatures;
   }>;
 }> => {
   const diagnostics: Array<{
@@ -119,496 +403,193 @@ export const testTidalApiConnection = async (): Promise<{
     success: boolean;
     responseTime?: number;
     error?: string;
-    features?: {
-      search: boolean;
-      trackById: boolean;
-      streaming: boolean;
-    };
+    features?: ProbeFeatures;
   }> = [];
 
-  console.log("🔍 Testing Tidal API connections with HiFi validation...");
-
-  for (const endpoint of TIDAL_ENDPOINTS) {
+  const candidates = getEndpointCandidates(true).slice(0, MAX_ENDPOINT_ATTEMPTS);
+  for (const endpoint of candidates) {
     const startTime = Date.now();
-    
     try {
-      console.log(`Testing ${endpoint.name}: ${endpoint.url}`);
-      
-      // Test 1: Basic connectivity with search
-      const searchUrl = buildApiUrl(endpoint, '/search/?s=test&limit=1');
-      const searchResponse = await fetch(searchUrl, {
-        method: 'GET',
-        headers: endpoint.headers || {},
-        signal: AbortSignal.timeout(8000), // 8 second timeout for comprehensive test
+      const probe = await probeEndpoint(endpoint, DIAGNOSTIC_TIMEOUT_MS, true);
+      updateEndpointHealth(endpoint.url, true);
+      setCurrentEndpoint(endpoint);
+      diagnostics.push({
+        endpoint: endpoint.name,
+        success: true,
+        responseTime: probe.responseTime,
+        features: probe.features,
       });
-
-      const responseTime = Date.now() - startTime;
-      const features = {
-        search: false,
-        trackById: false,
-        streaming: false,
+      return {
+        success: true,
+        endpoint: endpoint.name,
+        diagnostics,
       };
-
-      if (searchResponse.ok) {
-        const searchData = await searchResponse.json();
-        features.search = !!(searchData?.items?.length > 0);
-        
-        // Test 2: Track by ID functionality (using known working ID from HiFi API)
-        if (features.search && searchData.items?.[0]?.id) {
-          try {
-            const trackId = searchData.items[0].id;
-            const trackUrl = buildApiUrl(endpoint, `/track/?id=${trackId}&quality=HIGH`);
-            const trackResponse = await fetch(trackUrl, {
-              method: 'GET',
-              headers: endpoint.headers || {},
-              signal: AbortSignal.timeout(5000),
-            });
-
-            if (trackResponse.ok) {
-              const trackData = await trackResponse.json();
-              features.trackById = true;
-              
-              // Test 3: Streaming URL availability
-              if (Array.isArray(trackData)) {
-                const streamingData = trackData.find((item: any) => item?.OriginalTrackUrl);
-                features.streaming = !!streamingData?.OriginalTrackUrl;
-              } else if (trackData?.OriginalTrackUrl) {
-                features.streaming = true;
-              }
-            }
-          } catch (trackError) {
-            console.warn(`Track test failed for ${endpoint.name}:`, trackError);
-          }
-        }
-
-        console.log(`✅ ${endpoint.name} - Success (${responseTime}ms)`, features);
-        
-        updateEndpointHealth(endpoint.url, true);
-        diagnostics.push({
-          endpoint: endpoint.name,
-          success: true,
-          responseTime,
-          features,
-        });
-
-        // Set this as current endpoint and return success
-        currentEndpointIndex = TIDAL_ENDPOINTS.indexOf(endpoint);
-        currentEndpoint = endpoint;
-
-        return {
-          success: true,
-          endpoint: endpoint.name,
-          diagnostics,
-        };
-      } else {
-        throw new Error(`HTTP ${searchResponse.status}: ${searchResponse.statusText}`);
-      }
     } catch (error) {
-      const responseTime = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
-      console.warn(`❌ ${endpoint.name} - Failed (${responseTime}ms): ${errorMessage}`);
-      
+      const failure = error instanceof Error ? error : createError("Tidal request failed");
       updateEndpointHealth(endpoint.url, false);
       diagnostics.push({
         endpoint: endpoint.name,
         success: false,
-        responseTime,
-        error: errorMessage,
+        responseTime: Date.now() - startTime,
+        error: failure.message,
       });
     }
   }
 
-  console.error("🚫 All Tidal API endpoints failed");
-  
   return {
     success: false,
-    error: 'All endpoints failed',
+    error: "No Tidal endpoint is available",
     diagnostics,
   };
 };
 
 /**
- * Build API URL based on endpoint type
- */
-function buildApiUrl(endpoint: TidalEndpoint, path: string): string {
-  switch (endpoint.type) {
-    case 'proxy':
-      return `${endpoint.url}${path}`;
-    case 'direct':
-      return `${endpoint.url}${path}`;
-    case 'cors-proxy':
-      // For CORS proxy, we need to encode the full URL
-      // Use HiFi endpoint for CORS proxy
-      const fullUrl = `https://hifi.401658.xyz${path}`;
-      return `https://api.allorigins.win/raw?url=${encodeURIComponent(fullUrl)}`;
-    default:
-      return `${endpoint.url}${path}`;
-  }
-}
-
-/**
- * Update endpoint health tracking
- */
-function updateEndpointHealth(endpointUrl: string, success: boolean): void {
-  const health = endpointHealth.get(endpointUrl);
-  if (!health) return;
-
-  const now = Date.now();
-  
-  if (success) {
-    health.lastSuccess = now;
-    health.consecutiveFailures = 0;
-    health.isHealthy = true;
-  } else {
-    health.lastFailure = now;
-    health.consecutiveFailures++;
-    health.isHealthy = health.consecutiveFailures < 3; // Mark unhealthy after 3 consecutive failures
-  }
-}
-
-/**
- * Switch to the next healthy endpoint
- */
-function switchToNextEndpoint(): boolean {
-  const startIndex = currentEndpointIndex;
-  
-  do {
-    currentEndpointIndex = (currentEndpointIndex + 1) % TIDAL_ENDPOINTS.length;
-    currentEndpoint = TIDAL_ENDPOINTS[currentEndpointIndex];
-    
-    const health = endpointHealth.get(currentEndpoint.url);
-    if (health?.isHealthy) {
-      console.log(`🔄 Switched to ${currentEndpoint.name}: ${currentEndpoint.url}`);
-      return true;
-    }
-  } while (currentEndpointIndex !== startIndex);
-
-  // If no healthy endpoints, reset all to healthy and try the first one
-  console.warn("⚠️ No healthy endpoints found, resetting health status");
-  endpointHealth.forEach(health => {
-    health.isHealthy = true;
-    health.consecutiveFailures = 0;
-  });
-  
-  currentEndpointIndex = 0;
-  currentEndpoint = TIDAL_ENDPOINTS[0];
-  return false;
-}
-
-/**
- * Make a robust API request with automatic endpoint switching
- */
-async function makeRobustRequest<T>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
-  let attemptsLeft = TIDAL_ENDPOINTS.length;
-  let lastError: Error | null = null;
-
-  while (attemptsLeft > 0) {
-    try {
-      const url = buildApiUrl(currentEndpoint, path);
-      console.log(`🌐 Making request to ${currentEndpoint.name}: ${url}`);
-
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          ...currentEndpoint.headers,
-          ...options.headers,
-        },
-        signal: options.signal || AbortSignal.timeout(15000),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      updateEndpointHealth(currentEndpoint.url, true);
-      
-      console.log(`✅ Request successful via ${currentEndpoint.name}`);
-      return data;
-
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error('Unknown error');
-      
-      console.warn(`❌ Request failed via ${currentEndpoint.name}: ${lastError.message}`);
-      updateEndpointHealth(currentEndpoint.url, false);
-      
-      attemptsLeft--;
-      
-      if (attemptsLeft > 0) {
-        const switched = switchToNextEndpoint();
-        if (!switched) {
-          console.error("🚫 No more healthy endpoints available");
-          break;
-        }
-      }
-    }
-  }
-
-  throw new Error(`All Tidal API endpoints failed. Last error: ${lastError?.message}`);
-}
-
-/**
- * Enhanced search for songs on Tidal
+ * Search for songs.  Tidal being unavailable is a normal optional-provider
+ * state, so callers receive null and can continue with another index.
  */
 export const searchTidalSongs = async (
   query: string,
-  limit: number = 10,
-  offset: number = 0
+  limit = 10,
+  offset = 0,
 ): Promise<TidalSearchResponse | null> => {
+  if (!query.trim()) return null;
+
   try {
-    console.log(`🔍 Searching Tidal for: "${query}"`);
-    
     const searchParams = new URLSearchParams({
       s: query,
-      limit: limit.toString(),
-      offset: offset.toString(),
+      limit: String(Math.max(0, limit)),
+      offset: String(Math.max(0, offset)),
     });
-
-    const data = await makeRobustRequest<TidalSearchResponse>(
-      `/search/?${searchParams.toString()}`
+    return await makeRobustRequest<TidalSearchResponse>(
+      `/search/?${searchParams.toString()}`,
     );
-
-    console.log(`✅ Tidal search successful: ${data.items?.length || 0} results`);
-    return data;
-
-  } catch (error) {
-    console.error(`❌ Tidal search failed for query: "${query}"`, error);
+  } catch {
     return null;
   }
 };
 
-/**
- * Enhanced song retrieval with streaming URL
- */
+/** Retrieve a song and its streaming URL when the optional endpoint supports it. */
 export const getTidalSong = async (
   query: string,
-  quality: TidalQuality = "LOSSLESS"
+  quality: TidalQuality = "LOSSLESS",
 ): Promise<TidalSongResponse | null> => {
+  if (!query.trim()) return null;
+
   try {
-    console.log(`🎵 Getting Tidal song: "${query}" (${quality})`);
-    
-    const url = `/song/?q=${encodeURIComponent(query)}&quality=${quality}`;
-    const data = await makeRobustRequest<TidalSongResponse | TidalSongResponse[]>(url);
-
-    // Handle both single object and array responses
-    const result = Array.isArray(data) ? data[0] : data;
-    
-    if (result) {
-      console.log(`✅ Tidal song retrieved: ${result.title || 'Unknown'}`);
-      return result;
-    } else {
-      console.warn(`⚠️ No song data returned for query: "${query}"`);
-      return null;
-    }
-
-  } catch (error) {
-    console.error(`❌ Failed to get Tidal song: "${query}"`, error);
+    const data = await makeRobustRequest<TidalSongResponse | TidalSongResponse[]>(
+      `/song/?q=${encodeURIComponent(query)}&quality=${quality}`,
+    );
+    return Array.isArray(data) ? data[0] ?? null : data ?? null;
+  } catch {
     return null;
   }
 };
 
-/**
- * Enhanced track retrieval by ID
- */
+/** Retrieve a track by id and merge the stream URL returned by HiFi-style APIs. */
 export const getTidalTrackById = async (
   trackId: number,
   quality: TidalQuality = "LOSSLESS",
-  country: string = "US"
+  country = "US",
 ): Promise<TidalTrackResponse | null> => {
-  try {
-    console.log(`🎵 Getting Tidal track by ID: ${trackId} (${quality})`);
-    
-    const url = `/track/?id=${trackId}&quality=${quality}&country=${country}`;
-    const data = await makeRobustRequest<any>(url);
+  if (!Number.isFinite(trackId)) return null;
 
-    // The API returns an array with track info and streaming URL
+  try {
+    const data = await makeRobustRequest<any>(
+      `/track/?id=${encodeURIComponent(String(trackId))}&quality=${quality}&country=${encodeURIComponent(country)}`,
+    );
+
     if (Array.isArray(data) && data.length >= 2) {
       const trackInfo = data[0];
-      const urlObject = data.find((item: any) => item && item.OriginalTrackUrl);
-      
-      if (urlObject && urlObject.OriginalTrackUrl) {
-        const mergedData = {
+      const urlObject = data.find((item: any) => item?.OriginalTrackUrl);
+      if (urlObject?.OriginalTrackUrl) {
+        return {
           ...trackInfo,
           OriginalTrackUrl: urlObject.OriginalTrackUrl,
-        };
-        
-        console.log(`✅ Tidal track retrieved: ${trackInfo.title || 'Unknown'}`);
-        return mergedData;
+        } as TidalTrackResponse;
       }
     }
 
-    console.warn(`⚠️ No streaming URL found for track ID: ${trackId}`);
-    return data;
-
-  } catch (error) {
-    console.error(`❌ Failed to get Tidal track by ID: ${trackId}`, error);
+    return data as TidalTrackResponse;
+  } catch {
     return null;
   }
 };
 
-/**
- * Enhanced cover art retrieval
- */
+/** Retrieve cover art metadata when supported by the endpoint. */
 export const getTidalCover = async (
-  query: string | number
+  query: string | number,
 ): Promise<TidalCoverResponse[] | null> => {
   try {
-    console.log(`🖼️ Getting Tidal cover for: ${query}`);
-    
-    const queryParam = typeof query === "number" 
-      ? `id=${query}` 
-      : `q=${encodeURIComponent(query.toString())}`;
-    
-    const data = await makeRobustRequest<TidalCoverResponse[]>(`/cover/?${queryParam}`);
-    
-    console.log(`✅ Tidal cover retrieved`);
-    return data;
-
-  } catch (error) {
-    console.error(`❌ Failed to get Tidal cover for: ${query}`, error);
+    const queryParam = typeof query === "number"
+      ? `id=${encodeURIComponent(String(query))}`
+      : `q=${encodeURIComponent(query)}`;
+    return await makeRobustRequest<TidalCoverResponse[]>(`/cover/?${queryParam}`);
+  } catch {
     return null;
   }
 };
 
-/**
- * Enhanced lyrics retrieval
- */
+/** Retrieve lyrics metadata when supported by the endpoint. */
 export const getTidalLyrics = async (
-  trackId: number
+  trackId: number,
 ): Promise<TidalLyricsResponse | null> => {
-  try {
-    console.log(`📝 Getting Tidal lyrics for track ID: ${trackId}`);
-    
-    const data = await makeRobustRequest<TidalLyricsResponse[]>(`/lyrics/?id=${trackId}`);
-    
-    const result = Array.isArray(data) && data.length > 0 ? data[0] : null;
-    
-    if (result) {
-      console.log(`✅ Tidal lyrics retrieved`);
-    } else {
-      console.warn(`⚠️ No lyrics found for track ID: ${trackId}`);
-    }
-    
-    return result;
+  if (!Number.isFinite(trackId)) return null;
 
-  } catch (error) {
-    console.error(`❌ Failed to get Tidal lyrics for track ID: ${trackId}`, error);
+  try {
+    const data = await makeRobustRequest<TidalLyricsResponse | TidalLyricsResponse[]>(
+      `/lyrics/?id=${encodeURIComponent(String(trackId))}`,
+    );
+    return Array.isArray(data) ? data[0] ?? null : data ?? null;
+  } catch {
     return null;
   }
 };
 
-/**
- * Enhanced search and get songs with better error handling
- */
+/** Search metadata and resolve a bounded set of playable Tidal tracks. */
 export const searchAndGetTidalSongs = async (
   query: string,
   quality: TidalQuality = "LOSSLESS",
-  limit: number = 10
+  limit = 10,
 ): Promise<Track[]> => {
-  const callId = Math.random().toString(36).substring(2, 9);
-  
-  try {
-    console.log(`[${callId}] 🔍 Searching and getting Tidal songs: "${query}"`);
-
-    // Step 1: Search to get track IDs and metadata
-    const searchResults = await searchTidalSongs(query, limit, 0);
-
-    if (!searchResults?.items?.length) {
-      console.log(`[${callId}] ⚠️ No search results found`);
-      return [];
-    }
-
-    console.log(`[${callId}] 📋 Found ${searchResults.items.length} search results`);
-
-    const tracks: Track[] = [];
-
-    // Step 2: Get streaming URLs for each track
-    for (const searchTrack of searchResults.items.slice(0, limit)) {
-      try {
-        const trackData = await getTidalTrackById(searchTrack.id, quality);
-
-        if (trackData?.OriginalTrackUrl) {
-          const track = convertTidalTrackToTrack(searchTrack, trackData.OriginalTrackUrl);
-          tracks.push(track);
-          console.log(`[${callId}] ✅ Added track: ${track.title}`);
-        } else {
-          console.warn(`[${callId}] ⚠️ No streaming URL for: ${searchTrack.title}`);
-        }
-      } catch (error) {
-        console.warn(`[${callId}] ❌ Failed to get track data for: ${searchTrack.title}`, error);
-      }
-    }
-
-    console.log(`[${callId}] 🎉 Successfully loaded ${tracks.length} Tidal tracks`);
-    return tracks;
-
-  } catch (error) {
-    console.error(`[${callId}] ❌ Failed to search and get Tidal songs: "${query}"`, error);
+  const searchResults = await searchTidalSongs(query, limit, 0);
+  if (!Array.isArray(searchResults?.items) || searchResults.items.length === 0) {
     return [];
   }
+
+  const tracks: Track[] = [];
+  for (const searchTrack of searchResults.items.slice(0, Math.max(0, limit))) {
+    const trackData = await getTidalTrackById(searchTrack.id, quality);
+    if (trackData?.OriginalTrackUrl) {
+      tracks.push(convertTidalTrackToTrack(searchTrack, trackData.OriginalTrackUrl));
+    }
+  }
+  return tracks;
 };
 
-/**
- * Enhanced direct song search
- */
+/** Search and resolve one strictly selected Tidal recording. */
 export const searchTidalSongDirect = async (
   query: string,
-  quality: TidalQuality = "LOSSLESS"
+  quality: TidalQuality = "LOSSLESS",
 ): Promise<Track | null> => {
-  const callId = Math.random().toString(36).substring(2, 9);
-  
-  try {
-    const trackName = query.trim();
-    console.log(`[${callId}] 🎯 Direct Tidal search: "${trackName}"`);
+  const trackName = query.trim();
+  if (!trackName) return null;
 
-    // Step 1: Search for the track
-    const searchResults = await searchTidalSongs(trackName, 1, 0);
+  const searchResults = await searchTidalSongs(trackName, 1, 0);
+  const firstResult = searchResults?.items?.[0];
+  if (!firstResult) return null;
 
-    if (!searchResults?.items?.length) {
-      console.log(`[${callId}] ⚠️ No direct search results found`);
-      return null;
-    }
+  const trackData = await getTidalTrackById(firstResult.id, quality);
+  if (!trackData?.OriginalTrackUrl) return null;
 
-    const firstResult = searchResults.items[0];
-    console.log(`[${callId}] 🎵 Found track: ${firstResult.title} (ID: ${firstResult.id})`);
-
-    // Step 2: Get streaming URL
-    const trackData = await getTidalTrackById(firstResult.id, quality);
-
-    if (!trackData?.OriginalTrackUrl) {
-      console.log(`[${callId}] ⚠️ No streaming URL available`);
-      return null;
-    }
-
-    // Step 3: Convert to Track format
-    const track = convertTidalTrackToTrack(firstResult, trackData.OriginalTrackUrl);
-
-    // Step 4: Try to get lyrics
-    try {
-      const lyricsData = await getTidalLyrics(firstResult.id);
-      if (lyricsData?.subtitles) {
-        track.lrcUrl = `data:text/plain;base64,${btoa(lyricsData.subtitles)}`;
-      }
-    } catch (error) {
-      console.warn(`[${callId}] ⚠️ Could not get lyrics`, error);
-    }
-
-    console.log(`[${callId}] ✅ Successfully created track: ${track.title}`);
-    return track;
-
-  } catch (error) {
-    console.error(`[${callId}] ❌ Direct search failed: "${query}"`, error);
-    return null;
+  const track = convertTidalTrackToTrack(firstResult, trackData.OriginalTrackUrl);
+  const lyricsData = await getTidalLyrics(firstResult.id);
+  if (lyricsData?.subtitles && typeof btoa === "function") {
+    track.lrcUrl = `data:text/plain;base64,${btoa(lyricsData.subtitles)}`;
   }
+  return track;
 };
 
-/**
- * Get endpoint health status
- */
+/** Return a snapshot of the optional endpoint circuit state. */
 export const getTidalEndpointHealth = (): Array<{
   name: string;
   url: string;
@@ -616,38 +597,34 @@ export const getTidalEndpointHealth = (): Array<{
   lastSuccess: Date | null;
   lastFailure: Date | null;
   consecutiveFailures: number;
-}> => {
-  return TIDAL_ENDPOINTS.map(endpoint => {
-    const health = endpointHealth.get(endpoint.url)!;
-    return {
-      name: endpoint.name,
-      url: endpoint.url,
-      isHealthy: health.isHealthy,
-      lastSuccess: health.lastSuccess ? new Date(health.lastSuccess) : null,
-      lastFailure: health.lastFailure ? new Date(health.lastFailure) : null,
-      consecutiveFailures: health.consecutiveFailures,
-    };
-  });
-};
+}> => TIDAL_ENDPOINTS.map((endpoint) => {
+  const health = endpointHealth.get(endpoint.url)!;
+  return {
+    name: endpoint.name,
+    url: endpoint.url,
+    isHealthy: health.isHealthy,
+    lastSuccess: health.lastSuccess ? new Date(health.lastSuccess) : null,
+    lastFailure: health.lastFailure ? new Date(health.lastFailure) : null,
+    consecutiveFailures: health.consecutiveFailures,
+  };
+});
 
-/**
- * Force endpoint health reset
- */
+/** Clear the circuit so an explicit user retry can probe Tidal again. */
 export const resetTidalEndpointHealth = (): void => {
-  console.log("🔄 Resetting Tidal endpoint health status");
-  endpointHealth.forEach(health => {
+  endpointHealth.forEach((health) => {
     health.isHealthy = true;
     health.consecutiveFailures = 0;
     health.lastSuccess = null;
     health.lastFailure = null;
   });
-  
   currentEndpointIndex = 0;
   currentEndpoint = TIDAL_ENDPOINTS[0];
 };
 
 /**
- * Comprehensive diagnostic function for Tidal API health
+ * Run a bounded diagnostic pass over the configured endpoint(s).  This is an
+ * explicit diagnostic operation, so it may bypass the normal cooldown, but it
+ * never probes more than two candidates.
  */
 export const runTidalDiagnostics = async (): Promise<{
   overall: {
@@ -660,236 +637,118 @@ export const runTidalDiagnostics = async (): Promise<{
   endpoints: Array<{
     name: string;
     url: string;
-    status: 'healthy' | 'degraded' | 'failed';
+    status: "healthy" | "degraded" | "failed";
     responseTime?: number;
-    features: {
-      search: boolean;
-      trackById: boolean;
-      streaming: boolean;
-    };
+    features: ProbeFeatures;
     lastError?: string;
   }>;
   recommendations: string[];
 }> => {
-  console.log("🔬 Running comprehensive Tidal API diagnostics...");
-  
-  const results = {
-    overall: {
-      success: false,
-      workingEndpoints: 0,
-      totalEndpoints: TIDAL_ENDPOINTS.length,
-      issues: [] as string[],
-    },
-    endpoints: [] as Array<{
-      name: string;
-      url: string;
-      status: 'healthy' | 'degraded' | 'failed';
-      responseTime?: number;
-      features: {
-        search: boolean;
-        trackById: boolean;
-        streaming: boolean;
-      };
-      lastError?: string;
-    }>,
-    recommendations: [] as string[],
-  };
+  const endpointResults: Array<{
+    name: string;
+    url: string;
+    status: "healthy" | "degraded" | "failed";
+    responseTime?: number;
+    features: ProbeFeatures;
+    lastError?: string;
+  }> = [];
+  const candidates = getEndpointCandidates(true).slice(0, MAX_ENDPOINT_ATTEMPTS);
 
-  // Test each endpoint comprehensively
-  for (const endpoint of TIDAL_ENDPOINTS) {
-    const startTime = Date.now();
-    const features = {
-      search: false,
-      trackById: false,
-      streaming: false,
-    };
-    
-    let status: 'healthy' | 'degraded' | 'failed' = 'failed';
-    let lastError: string | undefined;
-
+  for (const endpoint of candidates) {
     try {
-      // Test search functionality
-      const searchUrl = buildApiUrl(endpoint, '/search/?s=Taylor Swift&limit=1');
-      const searchResponse = await fetch(searchUrl, {
-        method: 'GET',
-        headers: endpoint.headers || {},
-        signal: AbortSignal.timeout(10000),
+      const probe = await probeEndpoint(endpoint, DIAGNOSTIC_TIMEOUT_MS, true);
+      const status = probe.features.search && probe.features.trackById && probe.features.streaming
+        ? "healthy"
+        : probe.features.search
+          ? "degraded"
+          : "failed";
+      updateEndpointHealth(endpoint.url, true);
+      if (status !== "failed") setCurrentEndpoint(endpoint);
+      endpointResults.push({
+        name: endpoint.name,
+        url: endpoint.url,
+        status,
+        responseTime: probe.responseTime,
+        features: probe.features,
       });
-
-      if (searchResponse.ok) {
-        const searchData = await searchResponse.json();
-        features.search = !!(searchData?.items?.length > 0);
-
-        if (features.search && searchData.items?.[0]?.id) {
-          // Test track by ID
-          const trackId = searchData.items[0].id;
-          const trackUrl = buildApiUrl(endpoint, `/track/?id=${trackId}&quality=HIGH`);
-          const trackResponse = await fetch(trackUrl, {
-            method: 'GET',
-            headers: endpoint.headers || {},
-            signal: AbortSignal.timeout(8000),
-          });
-
-          if (trackResponse.ok) {
-            const trackData = await trackResponse.json();
-            features.trackById = true;
-
-            // Test streaming URL
-            if (Array.isArray(trackData)) {
-              const streamingData = trackData.find((item: any) => item?.OriginalTrackUrl);
-              features.streaming = !!streamingData?.OriginalTrackUrl;
-            } else if (trackData?.OriginalTrackUrl) {
-              features.streaming = true;
-            }
-          }
-        }
-
-        // Determine status based on features
-        if (features.search && features.trackById && features.streaming) {
-          status = 'healthy';
-          results.overall.workingEndpoints++;
-        } else if (features.search) {
-          status = 'degraded';
-          results.overall.workingEndpoints++;
-        }
-      }
     } catch (error) {
-      lastError = error instanceof Error ? error.message : 'Unknown error';
-      status = 'failed';
+      const failure = error instanceof Error ? error : createError("Tidal request failed");
+      updateEndpointHealth(endpoint.url, false);
+      endpointResults.push({
+        name: endpoint.name,
+        url: endpoint.url,
+        status: "failed",
+        responseTime: undefined,
+        features: { search: false, trackById: false, streaming: false },
+        lastError: failure.message,
+      });
     }
-
-    const responseTime = Date.now() - startTime;
-
-    results.endpoints.push({
-      name: endpoint.name,
-      url: endpoint.url,
-      status,
-      responseTime,
-      features,
-      lastError,
-    });
-
-    console.log(`${status === 'healthy' ? '✅' : status === 'degraded' ? '⚠️' : '❌'} ${endpoint.name}: ${status} (${responseTime}ms)`);
   }
 
-  // Generate overall assessment
-  results.overall.success = results.overall.workingEndpoints > 0;
-  
-  // Find recommended endpoint
-  const healthyEndpoint = results.endpoints.find(e => e.status === 'healthy');
-  const degradedEndpoint = results.endpoints.find(e => e.status === 'degraded');
-  
-  if (healthyEndpoint) {
-    results.overall.recommendedEndpoint = healthyEndpoint.name;
-  } else if (degradedEndpoint) {
-    results.overall.recommendedEndpoint = degradedEndpoint.name;
+  const workingEndpoints = endpointResults.filter((result) => result.status !== "failed").length;
+  const healthyEndpoint = endpointResults.find((result) => result.status === "healthy");
+  const degradedEndpoint = endpointResults.find((result) => result.status === "degraded");
+  const issues: string[] = [];
+  const recommendations: string[] = [];
+
+  if (workingEndpoints === 0) {
+    issues.push("Tidal is unavailable");
+    recommendations.push("Continue without Tidal or configure a working VITE_TIDAL_API_URL endpoint");
+  } else if (workingEndpoints < endpointResults.length) {
+    issues.push("Some configured Tidal endpoints are unavailable");
   }
 
-  // Generate issues and recommendations
-  if (results.overall.workingEndpoints === 0) {
-    results.overall.issues.push('No working endpoints found');
-    results.recommendations.push('Check internet connection');
-    results.recommendations.push('Try running resetTidalEndpointHealth()');
-  } else if (results.overall.workingEndpoints < results.overall.totalEndpoints) {
-    results.overall.issues.push(`${results.overall.totalEndpoints - results.overall.workingEndpoints} endpoints are not working`);
+  if (endpointResults.some((result) =>
+    result.features.search && result.features.trackById && !result.features.streaming
+  )) {
+    issues.push("Tidal stream resolution is unavailable");
+    recommendations.push("Tidal search works, but another audio provider may be needed for playback");
   }
 
-  const streamingIssues = results.endpoints.filter(e => e.features.search && e.features.trackById && !e.features.streaming);
-  if (streamingIssues.length > 0) {
-    results.overall.issues.push('Some endpoints have streaming URL issues');
-    results.recommendations.push('Try different quality settings (HIGH instead of LOSSLESS)');
-  }
-
-  const proxyIssues = results.endpoints.filter(e => e.name.includes('Proxy') && e.status === 'failed');
-  if (proxyIssues.length > 0) {
-    results.recommendations.push('Restart development server if using Vite proxy');
-  }
-
-  console.log(`🔬 Diagnostics complete: ${results.overall.workingEndpoints}/${results.overall.totalEndpoints} endpoints working`);
-  
-  return results;
+  return {
+    overall: {
+      success: workingEndpoints > 0,
+      workingEndpoints,
+      totalEndpoints: TIDAL_ENDPOINTS.length,
+      recommendedEndpoint: healthyEndpoint?.name ?? degradedEndpoint?.name,
+      issues,
+    },
+    endpoints: endpointResults,
+    recommendations,
+  };
 };
 
-/**
- * Auto-fix common Tidal API issues
- */
+/** Reset the circuit and perform one explicit bounded connection check. */
 export const autoFixTidalIssues = async (): Promise<{
   success: boolean;
   actionsPerformed: string[];
   remainingIssues: string[];
 }> => {
-  console.log("🔧 Auto-fixing Tidal API issues...");
-  
-  const actionsPerformed: string[] = [];
-  const remainingIssues: string[] = [];
-
-  // Step 1: Reset endpoint health
   resetTidalEndpointHealth();
-  actionsPerformed.push('Reset endpoint health status');
-
-  // Step 2: Test connection
+  const actionsPerformed = ["Reset endpoint health status"];
   const connectionTest = await testTidalApiConnection();
-  
+
   if (connectionTest.success) {
     actionsPerformed.push(`Successfully connected to ${connectionTest.endpoint}`);
-    return {
-      success: true,
-      actionsPerformed,
-      remainingIssues,
-    };
+    return { success: true, actionsPerformed, remainingIssues: [] };
   }
-
-  // Step 3: Run full diagnostics to identify specific issues
-  const diagnostics = await runTidalDiagnostics();
-  
-  if (diagnostics.overall.success) {
-    actionsPerformed.push('Found working endpoint through diagnostics');
-    
-    // Switch to the recommended endpoint
-    if (diagnostics.overall.recommendedEndpoint) {
-      const recommendedIndex = TIDAL_ENDPOINTS.findIndex(e => e.name === diagnostics.overall.recommendedEndpoint);
-      if (recommendedIndex >= 0) {
-        currentEndpointIndex = recommendedIndex;
-        currentEndpoint = TIDAL_ENDPOINTS[recommendedIndex];
-        actionsPerformed.push(`Switched to ${diagnostics.overall.recommendedEndpoint}`);
-      }
-    }
-    
-    return {
-      success: true,
-      actionsPerformed,
-      remainingIssues: diagnostics.overall.issues,
-    };
-  }
-
-  // Step 4: If all else fails, provide recommendations
-  remainingIssues.push(...diagnostics.overall.issues);
-  remainingIssues.push(...diagnostics.recommendations);
 
   return {
     success: false,
     actionsPerformed,
-    remainingIssues,
+    remainingIssues: [connectionTest.error ?? "No Tidal endpoint is available"],
   };
 };
 
-// Export legacy functions for compatibility
+// Export legacy names for compatibility with existing callers.
 export const loadTidalSong = searchTidalSongDirect;
 export const loadTidalTrackById = getTidalTrackById;
 
-// Make test functions available globally for debugging
-if (typeof window !== 'undefined') {
+// Make the explicit diagnostic functions available in the browser console.
+if (typeof window !== "undefined") {
   (window as any).testTidalConnection = testTidalApiConnection;
   (window as any).getTidalHealth = getTidalEndpointHealth;
   (window as any).resetTidalHealth = resetTidalEndpointHealth;
   (window as any).runTidalDiagnostics = runTidalDiagnostics;
   (window as any).autoFixTidal = autoFixTidalIssues;
-  
-  console.log('🔧 Enhanced Tidal API diagnostics loaded!');
-  console.log('Available functions:');
-  console.log('  - testTidalConnection() - Test all endpoints');
-  console.log('  - runTidalDiagnostics() - Comprehensive health check');
-  console.log('  - autoFixTidal() - Auto-fix common issues');
-  console.log('  - getTidalHealth() - Get endpoint health status');
-  console.log('  - resetTidalHealth() - Reset health tracking');
 }
