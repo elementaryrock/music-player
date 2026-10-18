@@ -12,6 +12,10 @@ import {
   getTidalTrackById,
   searchTidalSongs,
 } from "./tidalApi";
+import {
+  getJioArtistText,
+  getJioAudioUrl as getJioAudioUrlFromData,
+} from "./jioSaavnData";
 import type { TidalSearchResponse, TidalTrack } from "../types/tidal.types";
 import type {
   ProviderMetadata,
@@ -165,26 +169,8 @@ const getDuration = (value: unknown): number | undefined => {
 const getTidalDuration = (track: TidalTrack | Record<string, unknown>): number | undefined =>
   getDuration((track as Record<string, unknown>).duration);
 
-const getJioArtist = (song: Record<string, unknown>): string => {
-  const artists = song.artists;
-  if (typeof song.primaryArtists === "string" && song.primaryArtists.trim()) {
-    return song.primaryArtists;
-  }
-  if (typeof song.artist === "string" && song.artist.trim()) return song.artist;
-  if (Array.isArray(artists) && artists.length > 0) {
-    const names = artists
-      .map((artist) =>
-        typeof artist === "string"
-          ? artist
-          : artist && typeof artist === "object" && "name" in artist
-            ? toStringValue((artist as { name?: unknown }).name)
-            : ""
-      )
-      .filter(Boolean);
-    if (names.length > 0) return names[0];
-  }
-  return typeof song.singers === "string" ? song.singers : "";
-};
+const getJioArtist = (song: Record<string, unknown>): string =>
+  getJioArtistText(song);
 
 const getJioTitle = (song: Record<string, unknown>): string =>
   toStringValue(song.name ?? song.title);
@@ -475,23 +461,8 @@ const tryTidal = async (
   return null;
 };
 
-const getJioAudioUrl = (song: Record<string, unknown>): string | undefined => {
-  const direct = song.audioUrl ?? song.audioSrc;
-  if (typeof direct === "string" && direct.trim()) return direct;
-  const downloads = song.downloadUrl;
-  if (Array.isArray(downloads)) {
-    for (let index = downloads.length - 1; index >= 0; index -= 1) {
-      const item = downloads[index];
-      const url = typeof item === "string"
-        ? item
-        : item && typeof item === "object"
-          ? (item as Record<string, unknown>).link ?? (item as Record<string, unknown>).url
-          : undefined;
-      if (typeof url === "string" && url.trim()) return url;
-    }
-  }
-  return typeof downloads === "string" ? downloads : undefined;
-};
+const getJioAudioUrl = (song: Record<string, unknown>): string | undefined =>
+  getJioAudioUrlFromData(song);
 
 const getJioIsrc = (song: Record<string, unknown>): string | undefined =>
   normalizeIsrc(song.isrc ?? song.ISRC);

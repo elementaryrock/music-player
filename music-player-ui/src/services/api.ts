@@ -5,6 +5,8 @@
  * API Documentation: https://saavn.dev/
  */
 
+import { getJioArtistText } from "./jioSaavnData.ts";
+
 // Base URL for the JioSaavn API
 // Updated to use the MaanasMS Cloudflare Worker instance (single, high-availability endpoint)
 const API_ENDPOINTS = ["https://jiosaavn-api.maanasms.workers.dev/api"];
@@ -220,6 +222,13 @@ export const searchSongs = async (
           if (songName && KNOWN_SONGS_ARTISTS[songName]) {
             return KNOWN_SONGS_ARTISTS[songName];
           }
+
+          // The current API documented at jiosaavn-api.maanasms.workers.dev
+          // returns artists as { primary, featured, all }, not as the legacy
+          // flat `primaryArtists` string. Normalize that shape before the
+          // older compatibility branches below can fall back to Unknown Artist.
+          const documentedArtist = getJioArtistText(songData);
+          if (documentedArtist) return documentedArtist;
 
           // Check for partial matches in known songs
           for (const knownSong in KNOWN_SONGS_ARTISTS) {

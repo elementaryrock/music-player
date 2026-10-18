@@ -60,6 +60,9 @@ test("the production build has a pinned, reproducible dependency manifest", asyn
   );
   assert.equal(packageJson.scripts.lint, "node node_modules/eslint/bin/eslint.js .");
   assert.equal(packageJson.scripts.preview, "node node_modules/vite/bin/vite.js preview");
-  assert.equal(packageJson.scripts.test, "node --test scripts/smoke.test.mjs scripts/lyrics.test.mjs");
+  assert.equal(
+    packageJson.scripts.test,
+    "node --test scripts/smoke.test.mjs scripts/lyrics.test.mjs scripts/jiosaavn.test.mjs",
+  );
   assert.match(lockfile, /\"lockfileVersion\"\s*:\s*\d+/);
 });
