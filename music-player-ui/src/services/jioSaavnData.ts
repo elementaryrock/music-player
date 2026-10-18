@@ -20,6 +20,52 @@ const asRecord = (value: unknown): Record<string, unknown> | undefined =>
 const asNonEmptyString = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
 
+const decodeCommonHtmlEntities = (value: string): string =>
+  value
+    .replace(/&quot;|&#34;|&#x22;/gi, '"')
+    .replace(/&apos;|&#39;|&#x27;/gi, "'")
+    .replace(/&amp;/gi, "&")
+    .replace(/&nbsp;/gi, " ");
+
+/**
+ * iTunes commonly appends a soundtrack marker such as `(From "Brahmastra")`
+ * while JioSaavn stores the same recording as simply `Kesariya`. This is a
+ * catalog label, not a recording-version marker, so it is safe to compare the
+ * title both with and without this suffix.
+ */
+const stripCatalogSourceSuffix = (value: string): string =>
+  decodeCommonHtmlEntities(value)
+    .replace(/\s*(?:\(|\[)\s*from\b[\s\S]*?(?:\)|\])\s*$/i, "")
+    .trim();
+
+const normalizeTitleForMatch = (value: string): string =>
+  decodeCommonHtmlEntities(value)
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[’'`]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Compare catalog titles while preserving live/remix/karaoke distinctions. */
+export const jioTitlesMatch = (left: unknown, right: unknown): boolean => {
+  const leftText = asNonEmptyString(left);
+  const rightText = asNonEmptyString(right);
+  if (!leftText || !rightText) return false;
+
+  const leftVariants = new Set([
+    normalizeTitleForMatch(leftText),
+    normalizeTitleForMatch(stripCatalogSourceSuffix(leftText)),
+  ]);
+  const rightVariants = new Set([
+    normalizeTitleForMatch(rightText),
+    normalizeTitleForMatch(stripCatalogSourceSuffix(rightText)),
+  ]);
+
+  return [...leftVariants].some((variant) => variant && rightVariants.has(variant));
+};
+
 const artistNamesFromArray = (value: unknown): string[] => {
   if (!Array.isArray(value)) return [];
 

@@ -5,6 +5,7 @@ import {
   getJioArtistNames,
   getJioArtistText,
   getJioAudioUrl,
+  jioTitlesMatch,
 } from "../src/services/jioSaavnData.ts";
 import { searchSongs } from "../src/services/api.ts";
 
@@ -39,6 +40,21 @@ test("keeps compatibility with legacy flat artist and URL fields", () => {
   assert.equal(
     getJioAudioUrl({ downloadUrl: [{ quality: "320kbps", link: "https://audio.example.test/song.mp4" }] }),
     "https://audio.example.test/song.mp4",
+  );
+});
+
+test("matches harmless soundtrack catalog suffixes without accepting versions", () => {
+  assert.equal(jioTitlesMatch('Kesariya (From "Brahmastra")', "Kesariya"), true);
+  assert.equal(jioTitlesMatch('Naatu Naatu (From "RRR")', 'Naatu Naatu'), true);
+  assert.equal(jioTitlesMatch('Tum Hi Ho (From &quot;Aashiqui 2&quot;)', 'Tum Hi Ho'), true);
+  assert.equal(jioTitlesMatch("Halo (Live)", "Halo"), false);
+  assert.equal(jioTitlesMatch("Believer (Remix)", "Believer"), false);
+  assert.equal(
+    jioTitlesMatch(
+      "Believer",
+      "Believer (Originally Perfomed By Imagine Dragons) (Melody Karaoke Version)",
+    ),
+    false,
   );
 });
 

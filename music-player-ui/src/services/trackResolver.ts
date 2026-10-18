@@ -15,6 +15,7 @@ import {
 import {
   getJioArtistText,
   getJioAudioUrl as getJioAudioUrlFromData,
+  jioTitlesMatch,
 } from "./jioSaavnData";
 import type { TidalSearchResponse, TidalTrack } from "../types/tidal.types";
 import type {
@@ -216,9 +217,7 @@ export const matchTrackMetadata = (
     return { matched: false, confidence: 0, matchedBy: "title-artist-duration" };
   }
 
-  const requestedTitle = normalizeTrackTitle(requested.title);
-  const candidateTitle = normalizeTrackTitle(candidate.title);
-  if (!requestedTitle || !candidateTitle || requestedTitle !== candidateTitle) {
+  if (!jioTitlesMatch(requested.title, candidate.title)) {
     return { matched: false, confidence: 0, matchedBy: "title-artist-duration" };
   }
 
