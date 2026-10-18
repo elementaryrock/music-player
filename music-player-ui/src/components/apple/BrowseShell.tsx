@@ -408,10 +408,15 @@ export function BrowseShell({
   return (
     <div className="apple-browse-shell">
       <div className="apple-shell-layout">
-        <aside className="apple-sidebar" aria-label="Apple Music sidebar">
+        <aside className="apple-sidebar" aria-label="Glass Player sidebar">
           <div className="apple-brand-lockup">
-            <span className="apple-brand-mark"><Icon name="music" size={20} /></span>
-            <span className="apple-brand-name">Music</span>
+            <span className="apple-brand-mark">
+              <img src="/glass-player-logo.svg" alt="" aria-hidden="true" />
+            </span>
+            <span className="apple-brand-name">
+              <strong>Glass</strong>
+              <small>Player</small>
+            </span>
           </div>
 
           <BrowseNav activeSection={activeSection} onSelect={selectSection} />

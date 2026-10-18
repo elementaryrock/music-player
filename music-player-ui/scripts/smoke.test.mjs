@@ -15,6 +15,8 @@ test("the app keeps discovery and stream resolution separate", async () => {
   const tidal = await readSource("src/services/tidalApiFixed.ts");
   const tidalFacade = await readSource("src/services/tidalApi.ts");
   const app = await readSource("src/App.tsx");
+  const browseShell = await readSource("src/components/apple/BrowseShell.tsx");
+  const glassPlayerLogo = await readSource("public/glass-player-logo.svg");
 
   assert.match(resolver, /export const resolveTrackStream/);
   assert.match(resolver, /const tidal = await tryTidal/);
@@ -49,6 +51,8 @@ test("the app keeps discovery and stream resolution separate", async () => {
   assert.match(app, /mediaPlaybackDuration/);
   assert.match(app, /app-playback-state--\$\{playbackState\(currentTrack\)\}/);
   assert.match(app, /src=\{currentTrack\?\.audioSrc/);
+  assert.match(browseShell, /glass-player-logo\.svg/);
+  assert.match(glassPlayerLogo, /linearGradient id="glass"/);
 });
 
 test("a newer selection invalidates stale or aborted stream resolutions", async () => {

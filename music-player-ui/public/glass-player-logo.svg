@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Glass Player</title>
+  <desc id="desc">A translucent neon glass G surrounding a play symbol.</desc>
+  <defs>
+    <linearGradient id="glass" x1="0.12" y1="0.08" x2="0.86" y2="0.92">
+      <stop offset="0" stop-color="#f4f8ff" />
+      <stop offset="0.22" stop-color="#66c8ff" />
+      <stop offset="0.52" stop-color="#9b72ff" />
+      <stop offset="0.78" stop-color="#ffb4c4" />
+      <stop offset="1" stop-color="#f4fbff" />
+    </linearGradient>
+    <linearGradient id="edge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.98" />
+      <stop offset="0.45" stop-color="#c9dcff" stop-opacity="0.8" />
+      <stop offset="0.74" stop-color="#f7c5dc" stop-opacity="0.82" />
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.95" />
+    </linearGradient>
+    <linearGradient id="play" x1="0.1" y1="0.1" x2="0.9" y2="0.9">
+      <stop offset="0" stop-color="#ecf6ff" />
+      <stop offset="0.48" stop-color="#8abaff" />
+      <stop offset="0.78" stop-color="#d183ff" />
+      <stop offset="1" stop-color="#ffc0c2" />
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0.23  0 0.7 0 0 0.43  0 0 1 0 1  0 0 0 0.72 0" />
+    </filter>
+    <filter id="playGlow" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur stdDeviation="11" />
+    </filter>
+  </defs>
+
+  <path
+    d="M365 119C316 77 250 62 188 80 99 106 45 188 55 279c10 91 83 160 175 166 94 6 176-50 204-137 6-19 8-39 6-59H270"
+    fill="none"
+    stroke="url(#glass)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="96"
+    opacity="0.42"
+    filter="url(#glow)"
+  />
+  <path
+    d="M365 119C316 77 250 62 188 80 99 106 45 188 55 279c10 91 83 160 175 166 94 6 176-50 204-137 6-19 8-39 6-59H270"
+    fill="none"
+    stroke="#111a42"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="94"
+    opacity="0.88"
+  />
+  <path
+    d="M365 119C316 77 250 62 188 80 99 106 45 188 55 279c10 91 83 160 175 166 94 6 176-50 204-137 6-19 8-39 6-59H270"
+    fill="none"
+    stroke="url(#glass)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="78"
+    opacity="0.96"
+  />
+  <path
+    d="M365 119C316 77 250 62 188 80 99 106 45 188 55 279c10 91 83 160 175 166 94 6 176-50 204-137 6-19 8-39 6-59H270"
+    fill="none"
+    stroke="url(#edge)"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="5"
+    opacity="0.9"
+  />
+
+  <path d="M213 178 327 256 213 334Z" fill="#92baff" opacity="0.7" filter="url(#playGlow)" />
+  <path d="M213 178 327 256 213 334Z" fill="url(#play)" stroke="#f4f8ff" stroke-linejoin="round" stroke-width="5" />
+  <path d="M225 198 298 250" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="4" opacity="0.65" />
+</svg>
