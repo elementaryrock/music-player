@@ -1,0 +1,148 @@
+.apple-lyrics-drawer {
+  position: fixed;
+  z-index: 850;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  width: min(30rem, 94vw);
+  flex-direction: column;
+  padding: 1.2rem clamp(1rem, 3vw, 2rem) 1rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(13, 13, 20, 0.84);
+  box-shadow: -1rem 0 4rem rgba(0, 0, 0, 0.22);
+  color: #fff;
+  backdrop-filter: blur(34px) saturate(140%);
+  transform: translateX(105%);
+  visibility: hidden;
+  transition: transform 330ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.apple-lyrics-drawer.is-open {
+  visibility: visible;
+  transform: translateX(0);
+}
+
+.apple-lyrics-drawer__backdrop {
+  position: fixed;
+  z-index: 849;
+  inset: 0;
+  border: 0;
+  background: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 330ms ease;
+}
+
+.apple-lyrics-drawer__backdrop.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.apple-lyrics-drawer__topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.4rem;
+}
+
+.apple-lyrics-drawer__track {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.72rem;
+}
+
+.apple-lyrics-drawer__track > div {
+  display: grid;
+  min-width: 0;
+  gap: 0.12rem;
+}
+
+.apple-lyrics-drawer__track p,
+.apple-lyrics-drawer__track strong,
+.apple-lyrics-drawer__track span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apple-lyrics-drawer__track p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.apple-lyrics-drawer__track strong {
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 0.92rem;
+  font-weight: 650;
+}
+
+.apple-lyrics-drawer__track span:not(.apple-lyrics-drawer__artwork-fallback) {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.74rem;
+}
+
+.apple-lyrics-drawer__artwork,
+.apple-lyrics-drawer__artwork-fallback {
+  display: grid;
+  width: 2.9rem;
+  height: 2.9rem;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.62rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.6);
+  object-fit: cover;
+}
+
+.apple-lyrics-drawer__close {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.76);
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease;
+}
+
+.apple-lyrics-drawer__close:hover,
+.apple-lyrics-drawer__close:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  outline: none;
+}
+
+.apple-lyrics-drawer__lyrics {
+  min-height: 0;
+  flex: 1;
+}
+
+.apple-lyrics-drawer__lyrics .apple-synced-lyrics__header {
+  padding-bottom: 0.4rem;
+}
+
+.apple-lyrics-drawer__lyrics .apple-synced-lyrics__header h2,
+.apple-lyrics-drawer__lyrics .apple-synced-lyrics__eyebrow {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apple-lyrics-drawer,
+  .apple-lyrics-drawer__backdrop,
+  .apple-lyrics-drawer__close {
+    transition: none;
+  }
+}

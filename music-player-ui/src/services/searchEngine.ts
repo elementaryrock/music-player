@@ -5,19 +5,41 @@
  * multi-source support, and error handling.
  */
 
-import { searchSongs as searchJioSaavn, searchCombined } from './api';
-import { searchTidalSongs, searchAndGetTidalSongs } from './tidalApi';
-import { Track } from '../types/api.types';
+import { searchSongs as searchJioSaavn } from './api';
+import { searchTidalSongs } from './tidalApi';
+import { searchITunesSongs } from './itunesApi';
+import type {
+  AudioCandidate,
+  DiscoveryProvider,
+  ProviderMetadata,
+  StreamQuality,
+  UnifiedTrackMetadata,
+} from '../types/discovery.types';
+import type { Track } from '../types/api.types';
+
+export type SearchProvider = DiscoveryProvider;
 
 export interface SearchResult {
   id: string;
   title: string;
   artist: string;
+  primaryArtist?: string;
   album?: string;
   duration?: number;
-  source: 'jiosaavn' | 'tidal';
+  source: SearchProvider;
   imageUrl?: string;
+  artworkUrl?: string;
   audioUrl?: string;
+  audioCandidates?: AudioCandidate[];
+  metadataSource?: DiscoveryProvider;
+  explicit?: boolean;
+  popularity?: number;
+  rank?: number;
+  isrc?: string;
+  providerMetadata?: ProviderMetadata;
+  providers?: ProviderMetadata[];
+  quality?: StreamQuality;
+  streamMatchConfidence?: number;
   confidence: number; // Relevance score 0-1
   originalData?: any; // Store original API response
 }
@@ -26,7 +48,7 @@ export interface SearchEngineConfig {
   debounceMs: number;
   maxResults: number;
   enableSuggestions: boolean;
-  sources: ('jiosaavn' | 'tidal')[];
+  sources: SearchProvider[];
   cacheTimeout: number; // Cache TTL in milliseconds
   retryAttempts: number;
 }
@@ -51,10 +73,206 @@ interface CacheEntry {
   query: string;
 }
 
+/** Normalize text for search keys without discarding version labels. */
+export const normalizeSearchText = (value: unknown): string =>
+  (typeof value === 'string' ? value : value == null ? '' : String(value))
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[’'`]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+export const normalizeTitle = normalizeSearchText;
+export const normalizeArtist = normalizeSearchText;
+
+const primaryArtistForKey = (artist: string): string =>
+  normalizeArtist(artist)
+    .split(/\s+(?:feat|ft)\.?\s+/i)[0]
+    .split(/\s*[,/&]\s*/)[0]
+    .trim();
+
+export const createTrackDedupeKey = (title: string, artist: string): string =>
+  `${normalizeTitle(title)}_${primaryArtistForKey(artist)}`;
+
+export const createDedupeKey = createTrackDedupeKey;
+
+const clamp = (value: number, min = 0, max = 1): number =>
+  Math.min(max, Math.max(min, value));
+
+const parseSearchQuery = (query: string): { title: string; artist?: string } => {
+  const trimmed = query.trim();
+  const byMatch = trimmed.match(/^(.+?)\s+by\s+(.+)$/i);
+  if (byMatch) return { title: byMatch[1].trim(), artist: byMatch[2].trim() };
+
+  const dashMatch = trimmed.match(/^(.+?)\s+-\s+(.+)$/);
+  if (dashMatch) return { title: dashMatch[2].trim(), artist: dashMatch[1].trim() };
+
+  return { title: trimmed };
+};
+
+const tokenSimilarity = (left: string, right: string): number => {
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  if (left.includes(right) || right.includes(left)) return 0.72;
+  const leftTokens = new Set(left.split(' '));
+  const rightTokens = new Set(right.split(' '));
+  const shared = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  const union = new Set([...leftTokens, ...rightTokens]).size;
+  return union ? shared / union : 0;
+};
+
+const popularityBoost = (value: unknown): number => {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  // Tidal popularity is generally 0..100; Jio play counts can be much larger.
+  const normalized = numeric > 100 ? Math.min(1, Math.log10(numeric + 1) / 10) : numeric / 100;
+  return clamp(normalized) * 0.12;
+};
+
+const resultVersionPenalty = (title: string, query: string): number => {
+  const normalizedTitle = normalizeTitle(title);
+  const normalizedQuery = normalizeTitle(query);
+  const versionTerms = [
+    'cover',
+    'tribute',
+    'karaoke',
+    'remix',
+    'live',
+    'acoustic',
+    'instrumental',
+    'demo',
+    'rework',
+    'edit',
+    'version',
+    'sped up',
+    'slowed',
+  ];
+  return versionTerms.some((term) => normalizedTitle.includes(term) && !normalizedQuery.includes(term))
+    ? 0.22
+    : 0;
+};
+
+/** Deterministic 0..1 relevance score used for every metadata provider. */
+export const calculateRelevanceScore = (
+  result: Pick<SearchResult, 'title' | 'artist' | 'source' | 'popularity' | 'rank' | 'primaryArtist'>,
+  query: string,
+  index = result.rank ?? 0
+): number => {
+  const parsed = parseSearchQuery(query);
+  const normalizedTitle = normalizeTitle(result.title);
+  const normalizedArtist = normalizeArtist(result.primaryArtist || result.artist);
+  const normalizedTitleQuery = normalizeTitle(parsed.title);
+  const normalizedRawQuery = normalizeTitle(query);
+
+  const titleScore = normalizedTitle === normalizedTitleQuery
+    ? 1
+    : tokenSimilarity(normalizedTitle, normalizedTitleQuery);
+  const requestedArtist = parsed.artist ? normalizeArtist(parsed.artist) : undefined;
+  let artistScore = requestedArtist
+    ? tokenSimilarity(normalizedArtist, requestedArtist)
+    : normalizedArtist === normalizedRawQuery
+      ? 1
+      : normalizedRawQuery.includes(normalizedArtist) && normalizedArtist.length > 2
+        ? 0.75
+        : 0;
+
+  // A query that names an artist should penalize unrelated artists strongly,
+  // even when their titles happen to contain the query terms.
+  const artistPenalty = requestedArtist && artistScore < 0.45 ? 0.18 : 0;
+  artistScore = clamp(artistScore);
+  const rankBoost = clamp(1 - Math.max(0, index) / 20) * 0.08;
+  const providerBoost = result.source === 'tidal' ? 0.04 : result.source === 'itunes' ? 0.02 : 0;
+  const versionPenalty = resultVersionPenalty(result.title, query);
+
+  return clamp(
+    titleScore * 0.57 + artistScore * 0.24 + popularityBoost(result.popularity) +
+      rankBoost + providerBoost - versionPenalty - artistPenalty
+  );
+};
+
+export const mergeSearchResults = (
+  results: SearchResult[],
+  query: string,
+  maxResults = results.length
+): SearchResult[] => {
+  const merged = new Map<string, SearchResult>();
+  const providerPriority: Record<SearchProvider, number> = { tidal: 3, itunes: 2, jiosaavn: 1 };
+
+  results.forEach((input, index) => {
+    const scored: SearchResult = {
+      ...input,
+      confidence: calculateRelevanceScore(input, query, input.rank ?? index),
+    };
+    const key = createTrackDedupeKey(scored.title, scored.primaryArtist || scored.artist);
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, scored);
+      return;
+    }
+
+    const existingProviderPriority = providerPriority[existing.source];
+    const scoredProviderPriority = providerPriority[scored.source];
+    const scoreDelta = scored.confidence - existing.confidence;
+    // Keep the preferred metadata provider canonical when scores are close;
+    // only a materially stronger relevance score can displace it.
+    const shouldReplace = scoreDelta > 0.08 ||
+      (Math.abs(scoreDelta) <= 0.08 && scoredProviderPriority > existingProviderPriority);
+    const winner = shouldReplace ? scored : existing;
+    const loser = shouldReplace ? existing : scored;
+    const candidateUrls = [
+      ...(winner.audioCandidates || []),
+      ...(loser.audioCandidates || []),
+    ];
+    const audioCandidates = candidateUrls.length > 0
+      ? candidateUrls.filter((candidate, candidateIndex, all) =>
+          all.findIndex((item) => item.source === candidate.source && item.url === candidate.url) === candidateIndex
+        )
+      : undefined;
+    const providers = [
+      ...(winner.providers || (winner.providerMetadata ? [winner.providerMetadata] : [])),
+      ...(loser.providers || (loser.providerMetadata ? [loser.providerMetadata] : [])),
+    ].filter((provider, providerIndex, all) =>
+      all.findIndex((item) => item.provider === provider.provider && item.providerId === provider.providerId) === providerIndex
+    );
+
+    merged.set(key, {
+      ...loser,
+      ...winner,
+      // Keep metadata that exists only on the lower-scoring provider.
+      primaryArtist: winner.primaryArtist || loser.primaryArtist,
+      album: winner.album || loser.album,
+      imageUrl: winner.imageUrl || loser.imageUrl,
+      artworkUrl: winner.artworkUrl || loser.artworkUrl,
+      duration: winner.duration ?? loser.duration,
+      explicit: winner.explicit ?? loser.explicit,
+      isrc: winner.isrc || loser.isrc,
+      audioUrl: winner.audioUrl || (winner.source === loser.source ? loser.audioUrl : undefined),
+      metadataSource: winner.metadataSource || loser.metadataSource,
+      providerMetadata: winner.providerMetadata || loser.providerMetadata,
+      audioCandidates,
+      providers: providers.length ? providers : undefined,
+      confidence: Math.max(winner.confidence, loser.confidence),
+    });
+  });
+
+  return [...merged.values()]
+    .sort((left, right) =>
+      right.confidence - left.confidence ||
+      (left.rank ?? Number.MAX_SAFE_INTEGER) - (right.rank ?? Number.MAX_SAFE_INTEGER) ||
+      left.id.localeCompare(right.id)
+    )
+    .slice(0, Math.max(0, maxResults));
+};
+
+export const dedupeAndRankResults = mergeSearchResults;
+export const rankSearchResults = mergeSearchResults;
+
 export class SearchEngine {
   private config: SearchEngineConfig;
   private cache = new Map<string, CacheEntry>();
-  private debounceTimer: NodeJS.Timeout | null = null;
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private searchHistory: string[] = [];
   private abortController: AbortController | null = null;
 
@@ -63,7 +281,9 @@ export class SearchEngine {
       debounceMs: 300,
       maxResults: 20,
       enableSuggestions: true,
-      sources: ['jiosaavn', 'tidal'],
+      // Metadata indexes are primary. JioSaavn is deliberately last and is
+      // only a supplemental/fallback source for discovery and playback.
+      sources: ['tidal', 'itunes', 'jiosaavn'],
       cacheTimeout: 5 * 60 * 1000, // 5 minutes
       retryAttempts: 3,
       ...config,
@@ -79,7 +299,7 @@ export class SearchEngine {
   async search(
     query: string,
     options: {
-      sources?: ('jiosaavn' | 'tidal')[];
+      sources?: SearchProvider[];
       maxResults?: number;
       forceRefresh?: boolean;
     } = {}
@@ -90,9 +310,13 @@ export class SearchEngine {
       return [];
     }
 
+    const sources = options.sources || this.config.sources;
+    const maxResults = options.maxResults || this.config.maxResults;
+    const cacheKey = this.getCacheKey(trimmedQuery, sources, maxResults);
+
     // Check cache first (unless force refresh)
     if (!options.forceRefresh) {
-      const cached = this.getCachedResults(trimmedQuery);
+      const cached = this.getCachedResults(cacheKey);
       if (cached) {
         return cached;
       }
@@ -102,42 +326,56 @@ export class SearchEngine {
     if (this.abortController) {
       this.abortController.abort();
     }
-    this.abortController = new AbortController();
-
-    const sources = options.sources || this.config.sources;
-    const maxResults = options.maxResults || this.config.maxResults;
+    const controller = new AbortController();
+    this.abortController = controller;
 
     try {
-      const searchPromises: Promise<SearchResult[]>[] = [];
+      const signal = controller.signal;
+      const searchTasks: Array<{
+        source: SearchProvider;
+        promise: Promise<SearchResult[]>;
+      }> = [];
 
-      // Search JioSaavn if requested
-      if (sources.includes('jiosaavn')) {
-        searchPromises.push(this.searchJioSaavn(trimmedQuery, maxResults));
-      }
-
-      // Search Tidal if requested
+      // Tidal and iTunes are metadata indexes. JioSaavn is intentionally
+      // supplemental and is never needed for a healthy default search.
       if (sources.includes('tidal')) {
-        searchPromises.push(this.searchTidal(trimmedQuery, maxResults));
+        searchTasks.push({
+          source: 'tidal',
+          promise: this.withAbort(this.searchTidal(trimmedQuery, maxResults), signal),
+        });
+      }
+      if (sources.includes('itunes')) {
+        searchTasks.push({
+          source: 'itunes',
+          promise: this.withAbort(this.searchITunes(trimmedQuery, maxResults, signal), signal),
+        });
+      }
+      if (sources.includes('jiosaavn')) {
+        searchTasks.push({
+          source: 'jiosaavn',
+          promise: this.withAbort(this.searchJioSaavn(trimmedQuery, maxResults), signal),
+        });
       }
 
-      // Execute searches in parallel
-      const results = await Promise.allSettled(searchPromises);
-      
-      // Combine and process results
+      const results = await Promise.allSettled(searchTasks.map((task) => task.promise));
+
+      // A newer search or destroy() may have superseded this request. Return a
+      // safe empty result instead of allowing stale providers to update UI.
+      if (signal.aborted) return [];
+
       const allResults: SearchResult[] = [];
       results.forEach((result, index) => {
         if (result.status === 'fulfilled') {
           allResults.push(...result.value);
         } else {
-          console.warn(`Search failed for source ${sources[index]}:`, result.reason);
+          console.warn(`Search failed for source ${searchTasks[index]?.source}:`, result.reason);
         }
       });
 
-      // Deduplicate and rank results
       const processedResults = this.processResults(allResults, trimmedQuery, maxResults);
 
       // Cache results
-      this.cacheResults(trimmedQuery, processedResults);
+      this.cacheResults(cacheKey, processedResults, trimmedQuery);
 
       // Add to search history
       this.addToHistory(trimmedQuery);
@@ -188,18 +426,45 @@ export class SearchEngine {
           throw new Error('Invalid JioSaavn response structure');
         }
 
-        return response.results.map((song: any, index: number): SearchResult => ({
-          id: `jiosaavn_${song.id}`,
-          title: song.name || song.title || 'Unknown Title',
-          artist: this.extractArtistName(song),
-          album: song.album?.name || song.album || undefined,
-          duration: song.duration ? parseInt(song.duration) : undefined,
-          source: 'jiosaavn',
-          imageUrl: this.extractImageUrl(song),
-          audioUrl: this.extractAudioUrl(song),
-          confidence: this.calculateConfidence(song, query, index),
-          originalData: song,
-        }));
+        return response.results.map((song: any, index: number): SearchResult => {
+          const audioUrl = this.extractAudioUrl(song);
+          const providerMetadata: ProviderMetadata = {
+            provider: 'jiosaavn',
+            providerId: song.id,
+            rank: index,
+            popularity: this.toNumber(song.playCount || song.popularity),
+            isrc: this.extractIsrc(song),
+            sourceUrl: typeof song.url === 'string' ? song.url : undefined,
+            raw: song,
+          };
+          const artist = this.extractArtistName(song);
+          const primaryArtist = this.extractPrimaryArtist(artist);
+          const title = song.name || song.title || 'Unknown Title';
+          return {
+            id: `jiosaavn_${song.id ?? index}`,
+            title,
+            artist,
+            primaryArtist,
+            album: song.album?.name || song.album || undefined,
+            duration: this.parseDuration(song.duration),
+            source: 'jiosaavn',
+            metadataSource: 'jiosaavn',
+            imageUrl: this.extractImageUrl(song),
+            artworkUrl: this.extractImageUrl(song),
+            audioUrl,
+            audioCandidates: audioUrl
+              ? [{ source: 'jiosaavn', url: audioUrl, quality: 'standard', providerMetadata }]
+              : undefined,
+            explicit: this.parseExplicit(song.explicitContent),
+            popularity: providerMetadata.popularity,
+            rank: index,
+            isrc: providerMetadata.isrc,
+            providerMetadata,
+            providers: [providerMetadata],
+            confidence: this.calculateConfidence({ ...song, title, artist, primaryArtist, source: 'jiosaavn' }, query, index),
+            originalData: song,
+          };
+        });
 
       } catch (error) {
         lastError = error instanceof Error ? error : new Error('JioSaavn search failed');
@@ -207,7 +472,7 @@ export class SearchEngine {
         
         if (attempt < this.config.retryAttempts) {
           // Exponential backoff
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+          await this.wait(Math.pow(2, attempt) * 1000);
         }
       }
     }
@@ -225,21 +490,47 @@ export class SearchEngine {
     
     for (let attempt = 1; attempt <= this.config.retryAttempts; attempt++) {
       try {
-        // Use the enhanced HiFi Tidal API
-        const tracks = await searchAndGetTidalSongs(query, 'LOSSLESS', maxResults);
-        
-        return tracks.map((track, index): SearchResult => ({
-          id: `tidal_${track.id}`,
-          title: track.title,
-          artist: track.artist,
-          album: track.album,
-          duration: track.duration,
-          source: 'tidal',
-          imageUrl: track.albumArtUrl,
-          audioUrl: track.audioSrc,
-          confidence: this.calculateConfidence(track, query, index),
-          originalData: track,
-        }));
+        // Metadata only: stream resolution is intentionally deferred to
+        // resolveTrackStream so a metadata outage never becomes an audio
+        // provider dependency.
+        const response = await searchTidalSongs(query, maxResults, 0);
+        if (response?.items && Array.isArray(response.items)) {
+          return response.items.map((track: any, index: number): SearchResult => {
+            const artist = this.extractTidalArtist(track);
+            const title = track.title || 'Unknown Title';
+            const providerMetadata: ProviderMetadata = {
+              provider: 'tidal',
+              providerId: track.id,
+              rank: index,
+              popularity: this.toNumber(track.popularity),
+              isrc: this.extractIsrc(track),
+              sourceUrl: typeof track.url === 'string' ? track.url : undefined,
+              raw: track,
+            };
+            return {
+              id: `tidal_${track.id ?? index}`,
+              title,
+              artist,
+              primaryArtist: artist,
+              album: track.album?.title || track.album?.name || track.album,
+              duration: this.parseDuration(track.duration),
+              source: 'tidal',
+              metadataSource: 'tidal',
+              imageUrl: this.extractTidalImageUrl(track),
+              artworkUrl: this.extractTidalImageUrl(track),
+              audioUrl: undefined,
+              explicit: typeof track.explicit === 'boolean' ? track.explicit : undefined,
+              popularity: providerMetadata.popularity,
+              rank: index,
+              isrc: providerMetadata.isrc,
+              providerMetadata,
+              providers: [providerMetadata],
+              confidence: this.calculateConfidence({ ...track, title, artist, source: 'tidal' }, query, index),
+              originalData: track,
+            };
+          });
+        }
+        return [];
 
       } catch (error) {
         lastError = error instanceof Error ? error : new Error('HiFi Tidal search failed');
@@ -247,7 +538,7 @@ export class SearchEngine {
         
         if (attempt < this.config.retryAttempts) {
           // Exponential backoff
-          await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+          await this.wait(Math.pow(2, attempt) * 1000);
         }
       }
     }
@@ -257,92 +548,186 @@ export class SearchEngine {
     return [];
   }
 
+  /** Search the global metadata fallback without ever requiring audio URLs. */
+  private async searchITunes(
+    query: string,
+    maxResults: number,
+    signal: AbortSignal
+  ): Promise<SearchResult[]> {
+    const metadata = await searchITunesSongs(query, { limit: maxResults, signal });
+    return metadata.map((item, index) => this.metadataToSearchResult(item, query, index));
+  }
+
+  private metadataToSearchResult(
+    item: UnifiedTrackMetadata,
+    query: string,
+    index: number
+  ): SearchResult {
+    return {
+      id: `${item.metadataProvider}_${item.id}`,
+      title: item.title,
+      artist: item.artist,
+      primaryArtist: item.primaryArtist,
+      album: item.album,
+      duration: item.duration,
+      source: item.metadataProvider,
+      metadataSource: item.metadataProvider,
+      imageUrl: item.artworkUrl,
+      artworkUrl: item.artworkUrl,
+      audioCandidates: item.audioCandidates,
+      explicit: item.explicit,
+      popularity: item.popularity,
+      rank: item.rank ?? index,
+      isrc: item.isrc,
+      providerMetadata: item.providerMetadata,
+      providers: [item.providerMetadata],
+      confidence: calculateRelevanceScore(
+        {
+          title: item.title,
+          artist: item.artist,
+          primaryArtist: item.primaryArtist,
+          source: item.metadataProvider,
+          popularity: item.popularity,
+          rank: item.rank ?? index,
+        },
+        query,
+        item.rank ?? index
+      ),
+      originalData: item.providerMetadata.raw,
+    };
+  }
+
+  private withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+    if (signal.aborted) return Promise.resolve([] as T);
+
+    return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      let cleanup = () => undefined;
+      const onAbort = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        // Provider failures are isolated from the other indexes.
+        resolve([] as T);
+      };
+      cleanup = () => {
+        signal.removeEventListener('abort', onAbort);
+      };
+
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.then(
+        (value) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          resolve(value);
+        },
+        (error) => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          reject(error);
+        }
+      );
+    });
+  }
+
+  private wait(delayMs: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  private parseDuration(value: unknown): number | undefined {
+    if (typeof value === 'string' && value.includes(':')) {
+      const parts = value.split(':').map(Number);
+      if (parts.every(Number.isFinite) && parts.length === 2) {
+        return Math.round(parts[0] * 60 + parts[1]);
+      }
+    }
+    const numeric = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : undefined;
+  }
+
+  private toNumber(value: unknown): number | undefined {
+    const numeric = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
+  }
+
+  private parseExplicit(value: unknown): boolean | undefined {
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return value > 0;
+    if (typeof value === 'string') {
+      if (/^(?:explicit|true|1)$/i.test(value.trim())) return true;
+      if (/^(?:clean|false|0|notexplicit)$/i.test(value.trim())) return false;
+    }
+    return undefined;
+  }
+
+  private extractIsrc(item: any): string | undefined {
+    const value = item?.isrc || item?.ISRC || item?.externalIds?.isrc || item?.externalIds?.isrcs?.[0];
+    if (typeof value !== 'string') return undefined;
+    const normalized = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return normalized || undefined;
+  }
+
+  private extractTidalArtist(track: any): string {
+    if (track?.artist?.name) return track.artist.name;
+    if (Array.isArray(track?.artists) && track.artists.length > 0) {
+      return typeof track.artists[0] === 'string' ? track.artists[0] : track.artists[0]?.name || 'Unknown Artist';
+    }
+    return track?.artist || 'Unknown Artist';
+  }
+
+  private extractPrimaryArtist(artist: string): string {
+    return artist
+      .split(/\s+(?:feat|ft)\.?\s+/i)[0]
+      .split(/\s*[,/&]\s*/)[0]
+      .trim() || artist;
+  }
+
+  private extractTidalImageUrl(track: any): string | undefined {
+    const cover = track?.album?.cover;
+    if (typeof cover !== 'string' || !cover) return undefined;
+    return `https://resources.tidal.com/images/${cover.replace(/-/g, '/')}/1280x1280.jpg`;
+  }
+
   /**
    * Process and rank search results
    */
   private processResults(results: SearchResult[], query: string, maxResults: number): SearchResult[] {
-    // Remove duplicates based on title and artist similarity
-    const deduped = this.deduplicateResults(results);
-    
-    // Sort by confidence score
-    const sorted = deduped.sort((a, b) => b.confidence - a.confidence);
-    
-    // Limit results
-    return sorted.slice(0, maxResults);
+    return this.deduplicateResults(results, query, maxResults);
   }
 
   /**
    * Remove duplicate results based on title and artist similarity
    */
-  private deduplicateResults(results: SearchResult[]): SearchResult[] {
-    const seen = new Set<string>();
-    const deduped: SearchResult[] = [];
-
-    for (const result of results) {
-      const key = this.createDedupeKey(result.title, result.artist);
-      
-      if (!seen.has(key)) {
-        seen.add(key);
-        deduped.push(result);
-      } else {
-        // If we have a duplicate, keep the one with higher confidence
-        const existingIndex = deduped.findIndex(r => 
-          this.createDedupeKey(r.title, r.artist) === key
-        );
-        
-        if (existingIndex !== -1 && result.confidence > deduped[existingIndex].confidence) {
-          deduped[existingIndex] = result;
-        }
-      }
-    }
-
-    return deduped;
+  private deduplicateResults(results: SearchResult[], query = '', maxResults = results.length): SearchResult[] {
+    // Keep this method as the compatibility seam used by older callers while
+    // delegating the actual merge/rank policy to the exported pure helper.
+    results.forEach((result) => this.createDedupeKey(result.title, result.artist));
+    return mergeSearchResults(results, query, maxResults);
   }
 
   /**
    * Create a normalized key for deduplication
    */
   private createDedupeKey(title: string, artist: string): string {
-    const normalize = (str: string) => 
-      str.toLowerCase()
-         .replace(/[^\w\s]/g, '')
-         .replace(/\s+/g, ' ')
-         .trim();
-    
-    return `${normalize(title)}_${normalize(artist)}`;
+    return createTrackDedupeKey(title, artist);
   }
 
   /**
    * Calculate relevance confidence score
    */
   private calculateConfidence(item: any, query: string, index: number): number {
-    const queryLower = query.toLowerCase();
-    const title = (item.title || item.name || '').toLowerCase();
-    const artist = (item.artist || item.primaryArtists || '').toLowerCase();
-    
-    let score = 0;
-    
-    // Exact title match gets highest score
-    if (title === queryLower) {
-      score += 0.5;
-    } else if (title.includes(queryLower)) {
-      score += 0.3;
-    }
-    
-    // Artist match
-    if (artist.includes(queryLower)) {
-      score += 0.2;
-    }
-    
-    // Position in results (earlier = better)
-    score += Math.max(0, (20 - index) / 20 * 0.2);
-    
-    // Source preference (can be configured)
-    if (item.source === 'tidal') {
-      score += 0.05; // Slight preference for Tidal due to quality
-    }
-    
-    return Math.min(1, score);
+    const title = item.title || item.name || '';
+    const artist = item.primaryArtist || item.artist || item.primaryArtists || '';
+    return calculateRelevanceScore({
+      title,
+      artist,
+      primaryArtist: artist,
+      source: item.source || 'jiosaavn',
+      popularity: item.popularity,
+      rank: index,
+    }, query, index);
   }
 
   /**
@@ -397,8 +782,12 @@ export class SearchEngine {
   /**
    * Cache management
    */
-  private getCachedResults(query: string): SearchResult[] | null {
-    const cached = this.cache.get(query.toLowerCase());
+  private getCacheKey(query: string, sources: SearchProvider[], maxResults: number): string {
+    return `${query.toLowerCase()}::${[...sources].sort().join(',')}::${maxResults}`;
+  }
+
+  private getCachedResults(cacheKey: string): SearchResult[] | null {
+    const cached = this.cache.get(cacheKey);
     
     if (cached && Date.now() - cached.timestamp < this.config.cacheTimeout) {
       return cached.results;
@@ -406,14 +795,14 @@ export class SearchEngine {
     
     // Remove expired cache entry
     if (cached) {
-      this.cache.delete(query.toLowerCase());
+      this.cache.delete(cacheKey);
     }
     
     return null;
   }
 
-  private cacheResults(query: string, results: SearchResult[]): void {
-    this.cache.set(query.toLowerCase(), {
+  private cacheResults(cacheKey: string, results: SearchResult[], query = cacheKey): void {
+    this.cache.set(cacheKey, {
       results,
       timestamp: Date.now(),
       query,
@@ -422,7 +811,7 @@ export class SearchEngine {
     // Limit cache size (keep only 50 most recent)
     if (this.cache.size > 50) {
       const oldestKey = this.cache.keys().next().value;
-      this.cache.delete(oldestKey);
+      if (oldestKey !== undefined) this.cache.delete(oldestKey);
     }
   }
 
@@ -449,6 +838,7 @@ export class SearchEngine {
   }
 
   private loadSearchHistory(): void {
+    if (typeof localStorage === 'undefined') return;
     try {
       const saved = localStorage.getItem('music_search_history');
       if (saved) {
@@ -461,6 +851,7 @@ export class SearchEngine {
   }
 
   private saveSearchHistory(): void {
+    if (typeof localStorage === 'undefined') return;
     try {
       localStorage.setItem('music_search_history', JSON.stringify(this.searchHistory));
     } catch (error) {
@@ -536,16 +927,25 @@ export class SearchEngine {
    */
   convertToTrack(result: SearchResult): Track {
     return {
+      ...(result.originalData && typeof result.originalData === 'object' ? result.originalData : {}),
       id: result.id,
       title: result.title,
       artist: result.artist,
       audioSrc: result.audioUrl || '',
-      albumArtUrl: result.imageUrl,
+      albumArtUrl: result.imageUrl || result.artworkUrl,
       album: result.album,
       duration: result.duration,
       source: result.source,
-      // Include original data for additional processing
-      ...(result.originalData || {}),
+      metadataSource: result.metadataSource || result.source,
+      primaryArtist: result.primaryArtist || result.artist,
+      explicit: result.explicit,
+      popularity: result.popularity,
+      rank: result.rank,
+      isrc: result.isrc,
+      providerMetadata: result.providerMetadata,
+      audioCandidates: result.audioCandidates,
+      streamQuality: result.quality,
+      streamMatchConfidence: result.streamMatchConfidence,
     };
   }
 
@@ -565,3 +965,21 @@ export class SearchEngine {
 
 // Create a default instance
 export const searchEngine = new SearchEngine();
+
+/**
+ * App-facing global metadata search.  Callers can opt into a narrower provider
+ * set, but the default always keeps Tidal/iTunes discovery ahead of JioSaavn.
+ */
+export const searchGlobalTracks = (
+  query: string,
+  options: {
+    sources?: SearchProvider[];
+    maxResults?: number;
+    forceRefresh?: boolean;
+  } = {}
+): Promise<SearchResult[]> => searchEngine.search(query, options);
+
+export const searchMetadata = searchGlobalTracks;
+
+export const convertSearchResultToTrack = (result: SearchResult): Track =>
+  searchEngine.convertToTrack(result);

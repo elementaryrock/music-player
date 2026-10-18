@@ -150,15 +150,19 @@ export class SearchResultProcessor {
     durations: Record<string, number>;
     qualities: Record<string, number>;
   } {
-    const stats = {
+    const stats: {
+      sources: Record<string, number>;
+      durations: Record<string, number>;
+      qualities: Record<string, number>;
+    } = {
       sources: { jiosaavn: 0, tidal: 0 },
       durations: { short: 0, medium: 0, long: 0, unknown: 0 },
-      qualities: { high: 0, lossless: 0 },
+      qualities: { high: 0, lossless: 0, standard: 0 },
     };
 
     results.forEach(result => {
       // Count sources
-      stats.sources[result.source]++;
+      stats.sources[result.source] = (stats.sources[result.source] || 0) + 1;
 
       // Count durations
       if (!result.duration) {
@@ -172,8 +176,10 @@ export class SearchResultProcessor {
       }
 
       // Count qualities
-      if (result.source === 'tidal') {
+      if (result.source === 'tidal' && result.quality !== 'standard') {
         stats.qualities.lossless++;
+      } else if (result.source === 'itunes' || result.quality === 'standard') {
+        stats.qualities.standard++;
       } else {
         stats.qualities.high++;
       }
@@ -238,11 +244,16 @@ export class SearchResultProcessor {
    * Get quality label for a result
    */
   static getQualityLabel(result: SearchResult): string {
+    if (result.quality === 'hi-res') return 'Hi-Res';
+    if (result.quality === 'lossless') return 'Lossless';
+    if (result.quality === 'standard') return 'Standard';
     switch (result.source) {
       case 'tidal':
         return 'Lossless';
       case 'jiosaavn':
         return 'High Quality';
+      case 'itunes':
+        return 'Standard';
       default:
         return 'Standard';
     }
@@ -257,6 +268,8 @@ export class SearchResultProcessor {
         return 'JioSaavn';
       case 'tidal':
         return 'Tidal';
+      case 'itunes':
+        return 'iTunes';
       default:
         return source;
     }

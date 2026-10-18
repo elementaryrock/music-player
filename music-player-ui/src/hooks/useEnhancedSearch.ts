@@ -14,7 +14,7 @@ import { SearchResult } from '../services/searchEngine';
 interface UseEnhancedSearchOptions {
   debounceMs?: number;
   maxResults?: number;
-  sources?: ('jiosaavn' | 'tidal')[];
+  sources?: ('jiosaavn' | 'tidal' | 'itunes')[];
   enableSuggestions?: boolean;
   enableUrlState?: boolean;
   storageKey?: string;
@@ -64,7 +64,7 @@ export const useEnhancedSearch = (
   const {
     debounceMs = 300,
     maxResults = 20,
-    sources = ['jiosaavn', 'tidal'],
+    sources = ['tidal', 'itunes', 'jiosaavn'],
     enableSuggestions = true,
     enableUrlState = false,
     storageKey = 'music_search_filters',

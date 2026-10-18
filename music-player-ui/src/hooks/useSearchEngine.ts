@@ -8,7 +8,7 @@ import { SearchEngine, SearchResult, SearchState } from '../services/searchEngin
 interface UseSearchEngineOptions {
   debounceMs?: number;
   maxResults?: number;
-  sources?: ('jiosaavn' | 'tidal')[];
+  sources?: ('jiosaavn' | 'tidal' | 'itunes')[];
   enableSuggestions?: boolean;
 }
 
@@ -31,7 +31,7 @@ export const useSearchEngine = (options: UseSearchEngineOptions = {}): UseSearch
     searchEngineRef.current = new SearchEngine({
       debounceMs: options.debounceMs || 300,
       maxResults: options.maxResults || 20,
-      sources: options.sources || ['jiosaavn', 'tidal'],
+      sources: options.sources || ['tidal', 'itunes', 'jiosaavn'],
       enableSuggestions: options.enableSuggestions !== false,
     });
   }
@@ -73,7 +73,7 @@ export const useSearchEngine = (options: UseSearchEngineOptions = {}): UseSearch
 
     try {
       // Determine sources based on filters
-      let sources: ('jiosaavn' | 'tidal')[] = ['jiosaavn', 'tidal'];
+      let sources: ('jiosaavn' | 'tidal' | 'itunes')[] = ['tidal', 'itunes', 'jiosaavn'];
       if (searchState.filters.source !== 'all') {
         sources = [searchState.filters.source];
       }

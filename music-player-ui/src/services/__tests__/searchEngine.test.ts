@@ -100,12 +100,20 @@ describe('SearchEngine', () => {
         },
       ];
 
-      const { searchAndGetTidalSongs } = require('../tidalApi');
-      searchAndGetTidalSongs.mockResolvedValue(mockTidalTracks);
+      const { searchTidalSongs } = require('../tidalApi');
+      searchTidalSongs.mockResolvedValue({
+        items: mockTidalTracks.map((track) => ({
+          id: track.id,
+          title: track.title,
+          duration: track.duration,
+          artist: { name: track.artist },
+          album: { title: track.album },
+        })),
+      });
 
       const results = await searchEngine.search('test query', { sources: ['tidal'] });
 
-      expect(searchAndGetTidalSongs).toHaveBeenCalledWith('test query', 'LOSSLESS', 10);
+      expect(searchTidalSongs).toHaveBeenCalledWith('test query', 10, 0);
       expect(results).toHaveLength(1);
       expect(results[0]).toMatchObject({
         id: 'tidal_tidal1',
@@ -117,10 +125,10 @@ describe('SearchEngine', () => {
 
     it('should handle API errors gracefully', async () => {
       const { searchSongs } = require('../api');
-      const { searchAndGetTidalSongs } = require('../tidalApi');
+      const { searchTidalSongs } = require('../tidalApi');
       
       searchSongs.mockRejectedValue(new Error('JioSaavn API error'));
-      searchAndGetTidalSongs.mockRejectedValue(new Error('Tidal API error'));
+      searchTidalSongs.mockRejectedValue(new Error('Tidal API error'));
 
       // Should not throw, but return empty results
       const results = await searchEngine.search('test query');
@@ -151,10 +159,18 @@ describe('SearchEngine', () => {
       ];
 
       const { searchSongs } = require('../api');
-      const { searchAndGetTidalSongs } = require('../tidalApi');
+      const { searchTidalSongs } = require('../tidalApi');
       
       searchSongs.mockResolvedValue(mockJioSaavnResponse);
-      searchAndGetTidalSongs.mockResolvedValue(mockTidalTracks);
+      searchTidalSongs.mockResolvedValue({
+        items: mockTidalTracks.map((track) => ({
+          id: track.id,
+          title: track.title,
+          duration: track.duration,
+          artist: { name: track.artist },
+          album: { title: track.album },
+        })),
+      });
 
       const results = await searchEngine.search('test query');
 

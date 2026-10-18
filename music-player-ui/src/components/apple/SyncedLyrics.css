@@ -1,0 +1,174 @@
+.apple-synced-lyrics {
+  --lyrics-text: rgba(255, 255, 255, 0.94);
+  --lyrics-muted: rgba(255, 255, 255, 0.42);
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  color: var(--lyrics-text);
+}
+
+.apple-synced-lyrics__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-bottom: 1.25rem;
+}
+
+.apple-synced-lyrics__eyebrow {
+  margin: 0 0 0.35rem;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.apple-synced-lyrics__header h2 {
+  margin: 0;
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+
+.apple-synced-lyrics__source {
+  flex: 0 0 auto;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  padding: 0.36rem 0.62rem;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.apple-synced-lyrics__scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 7rem 0 8rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    black 7rem,
+    black calc(100% - 8rem),
+    transparent 100%
+  );
+}
+
+.apple-synced-lyrics__line {
+  display: block;
+  width: 100%;
+  border: 0;
+  padding: 0.65rem 0;
+  background: transparent;
+  color: var(--lyrics-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: clamp(1.2rem, 2.2vw, 1.78rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+  text-align: left;
+  transform-origin: left center;
+  transition:
+    color 220ms ease,
+    opacity 220ms ease,
+    filter 220ms ease,
+    transform 220ms ease;
+}
+
+.apple-synced-lyrics__line:not(.is-active) {
+  filter: blur(0.3px);
+  opacity: 0.48;
+}
+
+.apple-synced-lyrics__line:hover,
+.apple-synced-lyrics__line:focus-visible {
+  color: rgba(255, 255, 255, 0.82);
+  opacity: 1;
+  outline: none;
+}
+
+.apple-synced-lyrics__line.is-active {
+  color: #fff;
+  filter: none;
+  opacity: 1;
+  transform: scale(1.015);
+}
+
+.apple-synced-lyrics__line:focus-visible {
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.55);
+  text-underline-offset: 0.25em;
+}
+
+.apple-synced-lyrics__state {
+  display: grid;
+  min-height: 14rem;
+  place-content: center;
+  justify-items: center;
+  gap: 0.75rem;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: center;
+}
+
+.apple-synced-lyrics__state p {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.apple-synced-lyrics__state button {
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  padding: 0.48rem 0.82rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.apple-synced-lyrics__state button:hover,
+.apple-synced-lyrics__state button:focus-visible {
+  background: rgba(255, 255, 255, 0.15);
+  outline: none;
+}
+
+.apple-synced-lyrics__spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-top-color: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  animation: apple-lyrics-spin 800ms linear infinite;
+}
+
+.apple-synced-lyrics__glyph {
+  display: grid;
+  width: 2.4rem;
+  height: 2.4rem;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 1.25rem;
+}
+
+@keyframes apple-lyrics-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apple-synced-lyrics__line {
+    transition: none;
+  }
+
+  .apple-synced-lyrics__spinner {
+    animation: none;
+  }
+}

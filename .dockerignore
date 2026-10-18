@@ -1,0 +1,6 @@
+.git
+.opencode
+.omnirush
+**/node_modules
+**/dist
+**/.DS_Store
