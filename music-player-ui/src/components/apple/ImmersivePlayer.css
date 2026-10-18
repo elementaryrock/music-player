@@ -190,7 +190,8 @@
 
 .apple-immersive-player__artwork-wrap {
   position: relative;
-  width: min(100%, 31rem);
+  width: min(100%, 31rem, 48dvh);
+  max-height: 48dvh;
   aspect-ratio: 1;
   margin: 0 auto clamp(1.4rem, 4vh, 2.4rem);
   overflow: hidden;

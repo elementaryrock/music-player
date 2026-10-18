@@ -238,6 +238,7 @@ export const SyncedLyrics = ({
   const [retryToken, setRetryToken] = useState(0);
   const reducedMotion = usePrefersReducedMotion();
   const activeLineRef = useRef<HTMLButtonElement | null>(null);
+  const lyricsScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -304,13 +305,29 @@ export const SyncedLyrics = ({
   );
 
   useEffect(() => {
-    if (activeLineIndex < 0 || !activeLineRef.current) {
+    const scrollContainer = lyricsScrollRef.current;
+    const activeLine = activeLineRef.current;
+    if (activeLineIndex < 0 || !activeLine || !scrollContainer) {
       return;
     }
 
-    activeLineRef.current.scrollIntoView?.({
+    // Scroll only the lyrics viewport. The browser's ancestor-scrolling
+    // helper can move the fixed immersive shell and transport controls when
+    // the active line changes.
+    const lineTop = activeLine.getBoundingClientRect().top -
+      scrollContainer.getBoundingClientRect().top +
+      scrollContainer.scrollTop;
+    const targetScrollTop = Math.min(
+      Math.max(
+        0,
+        lineTop + activeLine.offsetHeight / 2 - scrollContainer.clientHeight / 2,
+      ),
+      Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight),
+    );
+
+    scrollContainer.scrollTo({
+      top: targetScrollTop,
       behavior: reducedMotion ? "auto" : "smooth",
-      block: "center",
     });
   }, [activeLineIndex, reducedMotion]);
 
@@ -354,7 +371,7 @@ export const SyncedLyrics = ({
       )}
 
       {state.status === "ready" && (
-        <div className="apple-synced-lyrics__scroll" role="list" tabIndex={0}>
+        <div className="apple-synced-lyrics__scroll" ref={lyricsScrollRef} role="list" tabIndex={0}>
           {state.lines.map((line, index) => {
             const isActive = index === activeLineIndex;
             return (

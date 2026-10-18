@@ -77,6 +77,8 @@ test("the app waits for media readiness and owns immersive scroll cleanup", asyn
   const app = await readSource("src/App.tsx");
   const immersive = await readSource("src/components/apple/ImmersivePlayer.tsx");
   const immersiveStyles = await readSource("src/components/apple/ImmersivePlayer.css");
+  const syncedLyrics = await readSource("src/components/apple/SyncedLyrics.tsx");
+  const browseStyles = await readSource("src/components/apple/BrowseShell.css");
 
   assert.match(app, /addEventListener\("loadedmetadata"/);
   assert.match(app, /addEventListener\("canplay"/);
@@ -90,6 +92,11 @@ test("the app waits for media readiness and owns immersive scroll cleanup", asyn
   assert.match(immersiveStyles, /\.apple-immersive-player__content[\s\S]*?overflow:\s*hidden/);
   assert.match(immersiveStyles, /\.apple-immersive-player__lyrics[\s\S]*?overflow:\s*hidden/);
   assert.match(immersiveStyles, /@media \(max-width: 900px\)[\s\S]*?flex-direction:\s*column/);
+  assert.match(immersiveStyles, /width:\s*min\(100%, 31rem, 48dvh\)/);
+  assert.match(syncedLyrics, /const lyricsScrollRef = useRef/);
+  assert.match(syncedLyrics, /scrollContainer\.scrollTo/);
+  assert.doesNotMatch(syncedLyrics, /scrollIntoView/);
+  assert.match(browseStyles, /background:\s*var\(--apple-accent\)/);
 });
 
 test("the production build has a pinned, reproducible dependency manifest", async () => {
