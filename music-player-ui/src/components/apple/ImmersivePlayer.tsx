@@ -188,25 +188,6 @@ export const ImmersivePlayer = ({
   }, [onClose, open]);
 
   useEffect(() => {
-    if (!open || typeof document === "undefined") {
-      return undefined;
-    }
-
-    const documentElement = document.documentElement;
-    const body = document.body;
-    const previousDocumentOverflow = documentElement.style.overflow;
-    const previousBodyOverflow = body.style.overflow;
-
-    documentElement.style.overflow = "hidden";
-    body.style.overflow = "hidden";
-
-    return () => {
-      documentElement.style.overflow = previousDocumentOverflow;
-      body.style.overflow = previousBodyOverflow;
-    };
-  }, [open]);
-
-  useEffect(() => {
     let disposed = false;
     let fadeFrame: number | undefined;
     let fadeTimer: number | undefined;

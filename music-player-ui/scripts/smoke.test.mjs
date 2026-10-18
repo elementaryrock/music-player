@@ -86,13 +86,14 @@ test("the app waits for media readiness and owns immersive scroll cleanup", asyn
   assert.match(app, /event\.key !== "Escape"/);
   assert.match(app, /body\.style\.overflow = "hidden"/);
   assert.match(app, /body\.style\.overflow = previousBodyOverflow/);
+  assert.doesNotMatch(immersive, /documentElement\.style\.overflow/);
   assert.match(app, /onClose=\{handleCloseImmersive\}/);
   assert.match(immersive, /className="apple-immersive-player__icon-button-label">Back/);
   assert.match(immersiveStyles, /height:\s*100dvh/);
   assert.match(immersiveStyles, /\.apple-immersive-player__content[\s\S]*?overflow:\s*hidden/);
   assert.match(immersiveStyles, /\.apple-immersive-player__lyrics[\s\S]*?overflow:\s*hidden/);
   assert.match(immersiveStyles, /@media \(max-width: 900px\)[\s\S]*?flex-direction:\s*column/);
-  assert.match(immersiveStyles, /width:\s*min\(100%, 31rem, 48dvh\)/);
+  assert.match(immersiveStyles, /width:\s*min\(100%, 31rem, 45dvh\)/);
   assert.match(syncedLyrics, /const lyricsScrollRef = useRef/);
   assert.match(syncedLyrics, /scrollContainer\.scrollTo/);
   assert.doesNotMatch(syncedLyrics, /scrollIntoView/);
