@@ -132,6 +132,8 @@ test("the browse home ships curated pop recommendations and a persistent theme s
     assert.match(recommendationSource, new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.doesNotMatch(recommendationSource, /audioUrl|previewUrl/, "recommendations must not invent playable URLs");
+  assert.equal((recommendationSource.match(/artworkUrl:/g) ?? []).length, 14, "every recommendation needs album art");
+  assert.equal((recommendationSource.match(/duration:/g) ?? []).length, 14, "every recommendation needs a metadata duration");
   assert.match(browseShell, /onSelectResult\(item\)/);
   assert.match(browseShell, /isCuratedSection/);
   assert.match(browseShell, /Top Pop Picks/);
