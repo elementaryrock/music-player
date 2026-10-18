@@ -7,16 +7,16 @@
  * replacing the song the user selected.
  */
 
-import { searchSongs } from "./api";
+import { searchSongs } from "./api.ts";
 import {
-  getTidalTrackById,
-  searchTidalSongs,
-} from "./tidalApi";
-import {
+  buildJioSearchQueries,
   getJioArtistText,
   getJioAudioUrl as getJioAudioUrlFromData,
+  getJioPlayableArtistNames,
+  isJioVersionSafe,
+  jioArtistMatchScore,
   jioTitlesMatch,
-} from "./jioSaavnData";
+} from "./jioSaavnData.ts";
 import type { TidalSearchResponse, TidalTrack } from "../types/tidal.types";
 import type {
   ProviderMetadata,
@@ -62,6 +62,8 @@ export interface ResolveTrackStreamOptions {
   jioTimeoutMs?: number;
   tidalLimit?: number;
   jioLimit?: number;
+  /** Number of Jio result pages collected for each bounded query variant. */
+  jioPages?: number;
   tidalQualities?: Array<"HI_RES_LOSSLESS" | "LOSSLESS" | "HI_RES" | "HIGH">;
   dependencies?: TrackResolverDependencies;
 }
@@ -72,7 +74,8 @@ const DEFAULT_TIMEOUT_MS = 8000;
 const DEFAULT_TIDAL_TIMEOUT_MS = 2500;
 const DEFAULT_JIO_TIMEOUT_MS = 3500;
 const DEFAULT_TIDAL_LIMIT = 12;
-const DEFAULT_JIO_LIMIT = 20;
+const DEFAULT_JIO_LIMIT = 50;
+const DEFAULT_JIO_PAGES = 2;
 const DEFAULT_TIDAL_QUALITIES: ResolveTrackStreamOptions["tidalQualities"] = [
   "HI_RES_LOSSLESS",
   "LOSSLESS",
@@ -203,7 +206,7 @@ export const matchTrackMetadata = (
     duration?: number;
     isrc?: string;
   },
-  options: { requireIsrc?: boolean } = {}
+  options: { requireIsrc?: boolean; artistScore?: number } = {}
 ): StrictMatch => {
   const requestedIsrc = normalizeIsrc(requested.isrc);
   const candidateIsrc = normalizeIsrc(candidate.isrc);
@@ -227,7 +230,9 @@ export const matchTrackMetadata = (
     .split(/\s*[,/&]\s*/)[0]
     .trim();
   const suspiciousArtist = /\b(?:tribute|karaoke|cover)\b/i.test(candidate.artist);
-  const artistScore = suspiciousArtist ? 0 : artistSimilarity(requestedArtist, candidateArtist);
+  const artistScore = suspiciousArtist
+    ? 0
+    : options.artistScore ?? artistSimilarity(requestedArtist, candidateArtist);
   if (artistScore < 0.88 || !isDurationMatch(requested.duration, candidate.duration)) {
     return { matched: false, confidence: 0, matchedBy: "title-artist-duration" };
   }
@@ -466,6 +471,33 @@ const getJioAudioUrl = (song: Record<string, unknown>): string | undefined =>
 const getJioIsrc = (song: Record<string, unknown>): string | undefined =>
   normalizeIsrc(song.isrc ?? song.ISRC);
 
+const getJioResponseCandidates = (response: unknown): unknown[] => {
+  const responseRecord = response && typeof response === "object"
+    ? response as Record<string, unknown>
+    : undefined;
+  const dataRecord = responseRecord?.data && typeof responseRecord.data === "object"
+    ? responseRecord.data as Record<string, unknown>
+    : undefined;
+  return Array.isArray(responseRecord?.results)
+    ? responseRecord.results
+    : Array.isArray(dataRecord?.results)
+      ? dataRecord.results
+      : [];
+};
+
+const getBestJioArtist = (
+  requestedArtist: string,
+  candidate: Record<string, unknown>
+): { score: number; artist: string } => {
+  const artists = getJioPlayableArtistNames(candidate);
+  let best = { score: 0, artist: "" };
+  for (const artist of artists) {
+    const score = jioArtistMatchScore(requestedArtist, artist);
+    if (score > best.score) best = { score, artist };
+  }
+  return best;
+};
+
 const tryJioSaavn = async (
   track: TrackResolutionInput,
   options: ResolveTrackStreamOptions,
@@ -476,56 +508,100 @@ const tryJioSaavn = async (
     options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     options.jioTimeoutMs ?? DEFAULT_JIO_TIMEOUT_MS
   );
-  let response: unknown;
-  try {
-    response = await raceWithAbort(
-      dependencies.searchJioSaavn(
-        `${track.title} ${track.primaryArtist || track.artist}`.trim(),
-        0,
-        options.jioLimit ?? DEFAULT_JIO_LIMIT
-      ),
-      options.signal,
-      jioRequestTimeout
-    );
-  } catch {
-    return null;
+  const requestedArtist = track.primaryArtist || track.artist;
+  const queries = buildJioSearchQueries({
+    title: track.title,
+    artist: track.artist,
+    primaryArtist: track.primaryArtist,
+    album: track.album,
+  }).slice(0, 6);
+  const pages = Math.max(1, Math.min(options.jioPages ?? DEFAULT_JIO_PAGES, 3));
+  const limit = options.jioLimit ?? DEFAULT_JIO_LIMIT;
+  const deadline = Date.now() + jioRequestTimeout;
+  const seen = new Set<string>();
+  let best: {
+    candidate: Record<string, unknown>;
+    match: StrictMatch;
+    url: string;
+    artistScore: number;
+    durationDelta: number;
+    rank: number;
+  } | undefined;
+
+  queryLoop: for (const query of queries) {
+    for (let page = 0; page < pages; page += 1) {
+      if (options.signal?.aborted) return null;
+      if (Date.now() >= deadline) break queryLoop;
+      const remainingMs = Math.max(1, deadline - Date.now());
+      let response: unknown;
+      try {
+        response = await raceWithAbort(
+          dependencies.searchJioSaavn(query, page, limit),
+          options.signal,
+          Math.min(jioRequestTimeout, remainingMs)
+        );
+      } catch {
+        // One query variant can be unavailable while another still resolves the
+        // same catalog entry. Continue while the shared Jio deadline permits.
+        continue;
+      }
+
+      const candidates = getJioResponseCandidates(response);
+      if (candidates.length === 0) continue;
+
+      for (const value of candidates) {
+        if (!value || typeof value !== "object") continue;
+        const candidate = value as Record<string, unknown>;
+        const candidateKey = candidate.id !== undefined
+          ? String(candidate.id)
+          : `${getJioTitle(candidate)}|${getJioArtist(candidate)}|${getJioDuration(candidate) ?? ""}`;
+        if (seen.has(candidateKey)) continue;
+        seen.add(candidateKey);
+
+        if (!isJioVersionSafe(track.title, candidate)) continue;
+        const artistMatch = getBestJioArtist(requestedArtist, candidate);
+        if (artistMatch.score < 0.88) continue;
+
+        const candidateIsrc = getJioIsrc(candidate);
+        const match = matchTrackMetadata(
+          track,
+          {
+            title: getJioTitle(candidate),
+            artist: getJioArtist(candidate),
+            duration: getJioDuration(candidate),
+            isrc: candidateIsrc,
+          },
+          { artistScore: artistMatch.score }
+        );
+        const url = getJioAudioUrl(candidate);
+        if (!match.matched || !url) continue;
+
+        const duration = getJioDuration(candidate);
+        const durationDelta = track.duration !== undefined && duration !== undefined
+          ? Math.abs(track.duration - duration)
+          : Number.MAX_SAFE_INTEGER;
+        const rank = page * limit + candidates.indexOf(value);
+        const isBetter = !best ||
+          match.confidence > best.match.confidence ||
+          (match.confidence === best.match.confidence && durationDelta < best.durationDelta) ||
+          (match.confidence === best.match.confidence && durationDelta === best.durationDelta && rank < best.rank);
+        if (isBetter) {
+          best = { candidate, match, url, artistScore: artistMatch.score, durationDelta, rank };
+        }
+      }
+    }
   }
 
-  const responseRecord = response && typeof response === "object"
-    ? response as Record<string, unknown>
-    : undefined;
-  const dataRecord = responseRecord?.data && typeof responseRecord.data === "object"
-    ? responseRecord.data as Record<string, unknown>
-    : undefined;
-  const candidates: unknown[] = Array.isArray(responseRecord?.results)
-    ? responseRecord.results
-    : Array.isArray(dataRecord?.results)
-      ? dataRecord.results
-      : [];
-
-  for (const value of candidates) {
-    if (!value || typeof value !== "object") continue;
-    const candidate = value as Record<string, unknown>;
-    const match = matchTrackMetadata(track, {
-      title: getJioTitle(candidate),
-      artist: getJioArtist(candidate),
-      duration: getJioDuration(candidate),
-      isrc: getJioIsrc(candidate),
-    });
-    const url = getJioAudioUrl(candidate);
-    if (!match.matched || !url) continue;
-
-    const providerId = candidate.id !== undefined ? String(candidate.id) : undefined;
-    return createResult(
-      url,
-      "jiosaavn",
-      "standard",
-      match,
-      providerId,
-      getTrackProviderMetadata("jiosaavn", candidate, providerId, getJioIsrc(candidate))
-    );
-  }
-  return null;
+  if (!best) return null;
+  const providerId = best.candidate.id !== undefined ? String(best.candidate.id) : undefined;
+  return createResult(
+    best.url,
+    "jiosaavn",
+    "standard",
+    best.match,
+    providerId,
+    getTrackProviderMetadata("jiosaavn", best.candidate, providerId, getJioIsrc(best.candidate))
+  );
 };
 
 const isHttpUrl = (value: unknown): value is string => {
@@ -615,9 +691,19 @@ export const resolveTrackStream = async (
 ): Promise<ResolvedTrackStream | null> => {
   if (!input || !toStringValue(input.title) || !toStringValue(input.artist)) return null;
 
+  let searchTidal = options.dependencies?.searchTidal;
+  let getTidalTrackById = options.dependencies?.getTidalTrackById;
+  if (!searchTidal || !getTidalTrackById) {
+    // Keep Tidal optional at module load time. This makes the Jio resolver
+    // independently testable and avoids loading an unavailable optional
+    // provider before its dependency is actually needed.
+    const tidal = await import("./tidalApi.ts");
+    searchTidal ??= tidal.searchTidalSongs;
+    getTidalTrackById ??= tidal.getTidalTrackById;
+  }
   const dependencies: Required<TrackResolverDependencies> = {
-    searchTidal: options.dependencies?.searchTidal ?? searchTidalSongs,
-    getTidalTrackById: options.dependencies?.getTidalTrackById ?? getTidalTrackById,
+    searchTidal,
+    getTidalTrackById,
     searchJioSaavn: options.dependencies?.searchJioSaavn ?? searchSongs,
   };
   const track = toResolutionInput(input);
