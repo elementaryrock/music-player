@@ -59,6 +59,10 @@ const stripSafeCatalogSuffix = (value: string): string => {
         /\s*(?:\(|\[)\s*original\s+motion\s+picture\s+soundtrack\s*(?:\)|\])\s*$/i,
         ""
       )
+      .replace(
+        /\s*(?:\(|\[)\s*(?:feat\.?|ft\.?|featuring|with)\b[^)\]]*(?:\)|\])\s*$/i,
+        ""
+      )
       .replace(/\s+[-–—]\s*from\b.+$/i, "")
       .trim();
   }

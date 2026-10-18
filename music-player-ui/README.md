@@ -1,10 +1,13 @@
 # Music Player UI
 
 An Apple-inspired React 19 music player built with TypeScript and Vite. The
-Browse view uses global metadata discovery (Tidal and iTunes by default), then
-resolves a selected recording to a verified Tidal stream with strict JioSaavn
-fallback. Two bundled MP3 tracks keep the player useful offline while working
-on search or provider connectivity.
+Browse view uses iTunes as the reliable default metadata index and an optional
+Tidal provider, then resolves a selected recording to a verified full stream.
+JioSaavn is used as a bounded metadata/playback fallback. Two bundled MP3
+tracks keep the player useful offline while working on search or provider
+connectivity. The app does not query the historical public Tidal host by
+default because it redirects and causes browser CORS failures; copy
+`.env.example` to `.env.local` to configure a proxy you control.
 
 ## Requirements
 
@@ -12,9 +15,10 @@ on search or provider connectivity.
 - npm 10 or newer
 - Docker 24 or newer for the container workflow (optional)
 
-No API keys or environment variables are required. Metadata, stream resolution,
-and lyrics use public endpoints at runtime; the app does not make network
-requests during module import.
+No API keys are required. Metadata, stream resolution, and lyrics use public
+endpoints at runtime; the app does not make provider requests during module
+import. Tidal is disabled by default because the historical public endpoint is
+not browser-safe; see `.env.example` for an optional controlled proxy.
 
 ## Setup
 

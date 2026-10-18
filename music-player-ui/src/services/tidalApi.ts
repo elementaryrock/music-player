@@ -35,12 +35,16 @@ export {
   autoFixTidalIssues,
 } from './tidalApiFixed';
 
-// Re-export HiFi-specific test functions
-export {
-  testHiFiTidalAPI,
-  quickHiFiHealthCheck,
-  compareHiFiVsLegacy,
-} from './tidalHiFiTest';
+// Keep diagnostic utilities lazy. Importing the player should not load a test
+// module that probes dead public endpoints or prints a wall of console output.
+// The browser console helpers below still load the utilities when explicitly
+// called.
+export const testHiFiTidalAPI = () =>
+  import("./tidalHiFiTest").then(({ testHiFiTidalAPI: run }) => run());
+export const quickHiFiHealthCheck = () =>
+  import("./tidalHiFiTest").then(({ quickHiFiHealthCheck: run }) => run());
+export const compareHiFiVsLegacy = () =>
+  import("./tidalHiFiTest").then(({ compareHiFiVsLegacy: run }) => run());
 
 // Legacy compatibility - the old implementation has been moved to tidalApiFixed.ts
 // with enhanced error handling, multiple endpoint fallbacks, and better CORS support
@@ -75,24 +79,13 @@ export const testTidalSong = async (query: string = "That's So True") => {
 // Make test functions available globally for debugging
 if (typeof window !== 'undefined') {
   (window as any).testTidalSong = testTidalSong;
-  
-  // Import and expose HiFi test functions
-  import('./tidalHiFiTest').then(({ testHiFiTidalAPI, quickHiFiHealthCheck, compareHiFiVsLegacy }) => {
-    (window as any).testHiFiTidal = testHiFiTidalAPI;
-    (window as any).quickHiFiCheck = quickHiFiHealthCheck;
-    (window as any).compareHiFiVsLegacy = compareHiFiVsLegacy;
-  });
+  (window as any).testHiFiTidal = testHiFiTidalAPI;
+  (window as any).quickHiFiCheck = quickHiFiHealthCheck;
+  (window as any).compareHiFiVsLegacy = compareHiFiVsLegacy;
 
   // Import and expose diagnostic functions
   import('./tidalApiFixed').then(({ runTidalDiagnostics, autoFixTidalIssues }) => {
     (window as any).runTidalDiagnostics = runTidalDiagnostics;
     (window as any).autoFixTidal = autoFixTidalIssues;
   });
-  
-  console.log('🎵 Enhanced Tidal API with HiFi endpoint loaded!');
-  console.log('Available test functions:');
-  console.log('  - testTidalSong("song name") - Test enhanced API');
-  console.log('  - testHiFiTidal() - Full HiFi API test suite');
-  console.log('  - quickHiFiCheck() - Quick HiFi health check');
-  console.log('  - compareHiFiVsLegacy() - Performance comparison');
 }

@@ -11,6 +11,9 @@ const readSource = (relativePath) => readFile(resolve(root, relativePath), "utf8
 test("the app keeps discovery and stream resolution separate", async () => {
   const resolver = await readSource("src/services/trackResolver.ts");
   const metadata = await readSource("src/services/metadataDiscovery.ts");
+  const searchEngine = await readSource("src/services/searchEngine.ts");
+  const tidal = await readSource("src/services/tidalApiFixed.ts");
+  const tidalFacade = await readSource("src/services/tidalApi.ts");
   const app = await readSource("src/App.tsx");
 
   assert.match(resolver, /export const resolveTrackStream/);
@@ -30,12 +33,44 @@ test("the app keeps discovery and stream resolution separate", async () => {
   assert.match(app, /streamResolution: resolved/);
   assert.match(app, /isPreview: resolvedPreview/);
   assert.match(app, /isPreview: result\.isPreview/);
+  assert.match(searchEngine, /const results = await Promise\.allSettled\(searchTasks\.map/);
+  assert.match(searchEngine, /if \(result\.status === 'fulfilled'\)/);
+  assert.match(searchEngine, /Optional provider failures are isolated from the other indexes/);
+  assert.match(searchEngine, /if \(response === null\)\s*\{/);
+  assert.match(tidal, /const endpointUrls = readConfiguredEndpointUrls\(\)/);
+  assert.doesNotMatch(tidal, /const DEFAULT_TIDAL_ENDPOINT/);
+  assert.match(tidalFacade, /Keep diagnostic utilities lazy/);
+  assert.doesNotMatch(tidalFacade, /Enhanced Tidal API with HiFi endpoint loaded/);
+  assert.match(app, /sources: \["jiosaavn"\]/);
+  assert.match(app, /if \(results\.length === 0\)/);
   assert.match(app, /Preview only/);
   assert.match(app, /PREVIEW_FALLBACK_DURATION_SECONDS = 30/);
   assert.match(app, /initialPlaybackDuration/);
   assert.match(app, /mediaPlaybackDuration/);
   assert.match(app, /app-playback-state--\$\{playbackState\(currentTrack\)\}/);
   assert.match(app, /src=\{currentTrack\?\.audioSrc/);
+});
+
+test("a newer selection invalidates stale or aborted stream resolutions", async () => {
+  const app = await readSource("src/App.tsx");
+
+  assert.match(app, /const resolutionRequestRef = useRef\(0\)/);
+  assert.match(app, /const requestId = resolutionRequestRef\.current \+ 1/);
+  assert.match(app, /resolutionRequestRef\.current = requestId/);
+  assert.match(app, /resolutionAbortRef\.current\?\.abort\(\)/);
+  assert.match(app, /const isCurrentResolution = \(\) =>/);
+  assert.match(app, /generation !== mediaGenerationRef\.current/);
+
+  const resolutionAwait = app.indexOf("const resolved = await resolveTrackStream");
+  const staleGuard = app.indexOf("if (!isCurrentResolution()) return;", resolutionAwait);
+  const commit = app.indexOf("commitTrack(resolvedTrack, true)", staleGuard);
+  assert.ok(resolutionAwait >= 0, "the selected result must await strict resolution");
+  assert.ok(staleGuard > resolutionAwait, "stale results must be ignored after resolution settles");
+  assert.ok(commit > staleGuard, "a stale result must be checked before committing playback");
+
+  const commitTrack = app.indexOf("const commitTrack = useCallback");
+  const invalidation = app.indexOf("invalidatePendingResolution();", commitTrack);
+  assert.ok(invalidation > commitTrack, "newer queue/selection commits must abort older resolution");
 });
 
 test("the app waits for media readiness and owns immersive scroll cleanup", async () => {

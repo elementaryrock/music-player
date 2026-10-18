@@ -310,12 +310,27 @@ function App() {
     };
 
     try {
-      // Metadata discovery stays global by default. JioSaavn is intentionally
-      // excluded here and is only consulted by strict stream resolution.
-      const results = await searchGlobalTracks(trimmedQuery, {
+      // Metadata discovery starts with the reliable global indexes. JioSaavn is
+      // queried only when those indexes return nothing, then strict resolution
+      // validates the selected recording before playback.
+      let results = await searchGlobalTracks(trimmedQuery, {
         sources: ["tidal", "itunes"],
         maxResults: 20,
       });
+      if (requestId !== searchRequestRef.current) return;
+
+      // Tidal is optional and iTunes does not cover every regional or
+      // independent release. If the global indexes have no result, make one
+      // explicit JioSaavn metadata fallback request instead of reporting a
+      // false search failure. Playback still performs strict identity checks,
+      // so a Jio cover cannot be substituted for the selected recording.
+      if (results.length === 0) {
+        results = await searchGlobalTracks(trimmedQuery, {
+          sources: ["jiosaavn"],
+          maxResults: 20,
+          forceRefresh: true,
+        });
+      }
       if (requestId !== searchRequestRef.current) return;
       setSearchResults(results);
       if (results.length === 0) {

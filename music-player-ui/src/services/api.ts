@@ -7,9 +7,16 @@
 
 import { getJioArtistText } from "./jioSaavnData.ts";
 
-// Base URL for the JioSaavn API
-// Updated to use the MaanasMS Cloudflare Worker instance (single, high-availability endpoint)
-const API_ENDPOINTS = ["https://jiosaavn-api.maanasms.workers.dev/api"];
+// Base URLs for the JioSaavn API. The Vercel adapter is first because the
+// worker's song-search route can return HTTP 200 responses containing only
+// instrumental/cover aliases for artist-qualified queries (for example,
+// `Cheap Thrills Sia`) even though the canonical recording exists in its
+// underlying catalog. Keep the worker as a failover for outages and preserve
+// the documented response adapter below.
+const API_ENDPOINTS = [
+  "https://saavnapi-six.vercel.app/api",
+  "https://jiosaavn-api.maanasms.workers.dev/api",
+];
 
 // Start with the first endpoint
 let currentEndpointIndex = 0;
@@ -891,7 +898,11 @@ export const searchCombined = async (
   query: string,
   source: "jiosaavn" | "tidal" | "both" = "both"
 ): Promise<any> => {
-  const results = {
+  const results: {
+    jiosaavn: any;
+    tidal: any;
+    combined: any[];
+  } = {
     jiosaavn: null,
     tidal: null,
     combined: [],

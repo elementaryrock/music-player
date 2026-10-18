@@ -48,8 +48,6 @@ interface EndpointProbe {
   features: ProbeFeatures;
 }
 
-const DEFAULT_TIDAL_ENDPOINT = "https://hifi.401658.xyz";
-
 // SearchEngine and the track resolver apply their own provider deadlines.  A
 // direct caller should get the same bounded behavior instead of inheriting a
 // 15 second timeout for every fallback.
@@ -110,28 +108,24 @@ const readConfiguredEndpointUrls = (): string[] => {
     .filter((value): value is string => Boolean(value));
 };
 
-const endpointUrls = [
-  ...readConfiguredEndpointUrls(),
-  DEFAULT_TIDAL_ENDPOINT,
-]
+const endpointUrls = readConfiguredEndpointUrls()
   .map(normalizeEndpointUrl)
   .filter((value): value is string => Boolean(value))
   .filter((value, index, values) => values.indexOf(value) === index);
 
-// The default list intentionally contains one endpoint.  A configured
-// endpoint can be supplied through VITE_TIDAL_API_URL (for example a known
-// good self-hosted proxy), and gets at most one bounded fallback attempt.
-const TIDAL_ENDPOINTS: TidalEndpoint[] = endpointUrls.map((url, index) => ({
+// No Tidal endpoint is enabled by default. A configured endpoint can be
+// supplied through VITE_TIDAL_API_URL (for example a known good self-hosted
+// proxy), and gets at most one bounded fallback attempt. This prevents a
+// known redirecting public host from producing browser CORS errors on every
+// search while keeping Tidal available for deployments that control a proxy.
+const TIDAL_ENDPOINTS: TidalEndpoint[] = endpointUrls.map((url) => ({
   url,
   type: url.startsWith("/") ? "proxy" : "direct",
-  name: index === 0 && url !== DEFAULT_TIDAL_ENDPOINT
-    ? "Configured Tidal API"
-    : "HiFi API (optional)",
+  name: url.startsWith("/") ? "Configured Tidal Proxy" : "Configured Tidal API",
   headers: TIDAL_REQUEST_HEADERS,
 }));
 
 let currentEndpointIndex = 0;
-let currentEndpoint = TIDAL_ENDPOINTS[0];
 
 const endpointHealth = new Map<string, ConnectionHealth>();
 
@@ -291,7 +285,6 @@ const setCurrentEndpoint = (endpoint: TidalEndpoint): void => {
   const index = TIDAL_ENDPOINTS.indexOf(endpoint);
   if (index >= 0) {
     currentEndpointIndex = index;
-    currentEndpoint = endpoint;
   }
 };
 
@@ -630,7 +623,6 @@ export const resetTidalEndpointHealth = (): void => {
     health.lastFailure = null;
   });
   currentEndpointIndex = 0;
-  currentEndpoint = TIDAL_ENDPOINTS[0];
 };
 
 /**
