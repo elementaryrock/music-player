@@ -264,6 +264,14 @@
   margin-bottom: 30px;
 }
 
+.apple-header-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  width: min(500px, 100%);
+}
+
 .apple-page-heading h1,
 .apple-section-heading h2,
 .apple-hero-content h2 {
@@ -314,6 +322,34 @@
 
 .apple-search-form input::-webkit-search-cancel-button {
   display: none;
+}
+
+.apple-theme-toggle {
+  display: inline-flex;
+  height: 38px;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 0 11px;
+  color: var(--apple-muted);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--apple-line);
+  border-radius: 12px;
+  box-shadow: 0 8px 18px rgba(66, 69, 87, 0.04);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  transition: color 160ms ease, background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.apple-theme-toggle:hover {
+  color: var(--apple-ink);
+  background: rgba(255, 255, 255, 0.9);
+  border-color: rgba(239, 79, 85, 0.22);
+}
+
+.apple-theme-toggle:active {
+  transform: scale(0.97);
 }
 
 .apple-search-submit {
@@ -659,6 +695,15 @@
   color: #c92e42;
 }
 
+.apple-section-note {
+  max-width: 220px;
+  color: var(--apple-muted);
+  font-size: 11px;
+  font-weight: 560;
+  line-height: 1.35;
+  text-align: right;
+}
+
 .apple-viral-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -684,6 +729,16 @@
 
 .apple-viral-row:hover {
   background: rgba(255, 255, 255, 0.72);
+}
+
+.apple-viral-row--recommendation {
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.apple-viral-row--recommendation:hover {
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: inset 0 0 0 1px rgba(239, 79, 85, 0.13), 0 8px 18px rgba(66, 69, 87, 0.06);
 }
 
 .apple-viral-row:active {
@@ -1103,6 +1158,17 @@
     margin-bottom: 22px;
   }
 
+  .apple-header-tools {
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .apple-header-tools .apple-search-form {
+    min-width: 0;
+    flex: 1;
+    width: auto;
+  }
+
   .apple-search-form {
     width: 100%;
   }
@@ -1265,6 +1331,16 @@
     padding: 0 10px;
   }
 
+  .apple-theme-toggle {
+    width: 38px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .apple-theme-toggle span {
+    display: none;
+  }
+
   .apple-search-submit span {
     display: none;
   }
@@ -1296,4 +1372,140 @@
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+}
+
+/*
+ * Dark mode keeps the same airy editorial composition while moving the glass
+ * surfaces into a near-black navy range. The coral and lavender accents stay
+ * intentionally familiar so the mode switch feels like the same player.
+ */
+.apple-browse-shell--dark {
+  --apple-ink: #f5f6ff;
+  --apple-muted: #a5aabd;
+  --apple-soft: #7c829c;
+  --apple-line: rgba(189, 198, 236, 0.14);
+  --apple-panel: rgba(17, 22, 45, 0.82);
+  --apple-accent: #ff7a78;
+  color: var(--apple-ink);
+  background:
+    radial-gradient(circle at 80% -8%, rgba(198, 91, 121, 0.19), transparent 25rem),
+    radial-gradient(circle at 17% 50%, rgba(77, 71, 168, 0.2), transparent 32rem),
+    #080c1b;
+}
+
+.apple-browse-shell--dark .apple-sidebar,
+.apple-browse-shell--dark .apple-search-form,
+.apple-browse-shell--dark .apple-search-panel,
+.apple-browse-shell--dark .apple-player,
+.apple-browse-shell--dark .apple-mobile-nav {
+  background: rgba(16, 21, 43, 0.82);
+  border-color: rgba(201, 209, 245, 0.14);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.3), 0 2px 9px rgba(0, 0, 0, 0.18);
+}
+
+.apple-browse-shell--dark .apple-nav-item,
+.apple-browse-shell--dark .apple-sidebar-link {
+  color: #9ca2b8;
+}
+
+.apple-browse-shell--dark .apple-nav-item:hover,
+.apple-browse-shell--dark .apple-sidebar-link:hover {
+  color: var(--apple-ink);
+  background: rgba(128, 137, 188, 0.13);
+}
+
+.apple-browse-shell--dark .apple-nav-item.is-active {
+  color: #ff9189;
+  background: rgba(255, 111, 116, 0.14);
+}
+
+.apple-browse-shell--dark .apple-brand-name small {
+  color: #aa9af1;
+}
+
+.apple-browse-shell--dark .apple-search-form,
+.apple-browse-shell--dark .apple-theme-toggle {
+  color: var(--apple-muted);
+  background: rgba(17, 23, 49, 0.78);
+  border-color: rgba(196, 205, 245, 0.16);
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.16);
+}
+
+.apple-browse-shell--dark .apple-search-form input {
+  color: var(--apple-ink);
+}
+
+.apple-browse-shell--dark .apple-search-form input::placeholder {
+  color: #737a96;
+}
+
+.apple-browse-shell--dark .apple-search-submit {
+  color: #180d1b;
+  background: #ff7a78;
+}
+
+.apple-browse-shell--dark .apple-search-submit:hover {
+  background: #ff9690;
+}
+
+.apple-browse-shell--dark .apple-theme-toggle:hover {
+  color: var(--apple-ink);
+  background: rgba(103, 112, 167, 0.24);
+  border-color: rgba(255, 122, 120, 0.32);
+}
+
+.apple-browse-shell--dark .apple-search-clear {
+  color: var(--apple-muted);
+  background: rgba(133, 143, 191, 0.2);
+}
+
+.apple-browse-shell--dark .apple-search-result:hover,
+.apple-browse-shell--dark .apple-viral-row:hover,
+.apple-browse-shell--dark .apple-viral-row--recommendation:hover {
+  background: rgba(126, 136, 192, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(180, 190, 237, 0.12), 0 8px 18px rgba(0, 0, 0, 0.12);
+}
+
+.apple-browse-shell--dark .apple-viral-row--recommendation {
+  background: rgba(112, 121, 180, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(176, 186, 232, 0.1);
+}
+
+.apple-browse-shell--dark .apple-search-result-play,
+.apple-browse-shell--dark .apple-track-action {
+  color: #ff9189;
+  background: rgba(255, 111, 116, 0.16);
+}
+
+.apple-browse-shell--dark .apple-track-number {
+  color: #737a96;
+}
+
+.apple-browse-shell--dark .apple-icon-button:hover,
+.apple-browse-shell--dark .apple-icon-button.is-active {
+  color: var(--apple-ink);
+  background: rgba(132, 143, 194, 0.18);
+}
+
+.apple-browse-shell--dark .apple-profile-card {
+  border-top-color: var(--apple-line);
+}
+
+.apple-browse-shell--dark .apple-volume-popover {
+  background: rgba(17, 23, 49, 0.97);
+  border-color: var(--apple-line);
+  box-shadow: 0 16px 38px rgba(0, 0, 0, 0.36);
+}
+
+.apple-browse-shell--dark .apple-section-note,
+.apple-browse-shell--dark .apple-player-progress {
+  color: #858ca6;
+}
+
+.apple-browse-shell--dark .apple-player {
+  backdrop-filter: blur(28px) saturate(145%);
+}
+
+.apple-browse-shell--dark .apple-artwork--player {
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
 }

@@ -104,6 +104,46 @@ test("the app waits for media readiness and owns immersive scroll cleanup", asyn
   assert.match(browseStyles, /background:\s*var\(--apple-accent\)/);
 });
 
+test("the browse home ships curated pop recommendations and a persistent theme switch", async () => {
+  const browseShell = await readSource("src/components/apple/BrowseShell.tsx");
+  const browseStyles = await readSource("src/components/apple/BrowseShell.css");
+  const recommendationStart = browseShell.indexOf("const POPULAR_RECOMMENDATIONS");
+  const recommendationEnd = browseShell.indexOf("];", recommendationStart);
+  const recommendationSource = browseShell.slice(recommendationStart, recommendationEnd);
+
+  assert.ok(recommendationStart >= 0, "the home needs a static recommendation catalog");
+  assert.ok(recommendationEnd > recommendationStart, "the recommendation catalog must be closed");
+  for (const title of [
+    "Blinding Lights",
+    "As It Was",
+    "Flowers",
+    "Levitating",
+    "Shape of You",
+    "Anti-Hero",
+    "Cruel Summer",
+    "Espresso",
+    "Stay",
+    "Watermelon Sugar",
+    "Bad Guy",
+    "Uptown Funk",
+    "Cheap Thrills",
+    "Dance Monkey",
+  ]) {
+    assert.match(recommendationSource, new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  assert.doesNotMatch(recommendationSource, /audioUrl|previewUrl/, "recommendations must not invent playable URLs");
+  assert.match(browseShell, /onSelectResult\(item\)/);
+  assert.match(browseShell, /isCuratedSection/);
+  assert.match(browseShell, /Top Pop Picks/);
+  assert.match(browseShell, /Made for you/);
+  assert.match(browseShell, /THEME_STORAGE_KEY = "glass-player-theme"/);
+  assert.match(browseShell, /localStorage\.getItem\(THEME_STORAGE_KEY\)/);
+  assert.match(browseShell, /localStorage\.setItem\(THEME_STORAGE_KEY, theme\)/);
+  assert.match(browseShell, /apple-browse-shell--dark/);
+  assert.match(browseStyles, /\.apple-browse-shell--dark[\s\S]*#080c1b/);
+  assert.match(browseStyles, /\.apple-viral-row--recommendation/);
+});
+
 test("the production build has a pinned, reproducible dependency manifest", async () => {
   const packageJson = JSON.parse(await readSource("package.json"));
   const lockfile = await readSource("package-lock.json");

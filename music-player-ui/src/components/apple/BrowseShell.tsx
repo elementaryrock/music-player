@@ -35,7 +35,32 @@ export interface BrowseShellProps {
 }
 
 type Tone = "coral" | "lavender" | "mint" | "blue" | "sunset" | "peach";
+type ThemeMode = "light" | "dark";
 type MediaItem = Track | SearchResult;
+
+const THEME_STORAGE_KEY = "glass-player-theme";
+
+/**
+ * Curated metadata keeps the initial browse surface useful without pretending
+ * that a recommendation already has a playable URL. Every click still enters
+ * the same strict provider-resolution path as a normal search result.
+ */
+const POPULAR_RECOMMENDATIONS: SearchResult[] = [
+  { id: "recommendation-blinding-lights", title: "Blinding Lights", artist: "The Weeknd", primaryArtist: "The Weeknd", album: "After Hours", source: "itunes", metadataSource: "itunes", rank: 0, popularity: 99, confidence: 1 },
+  { id: "recommendation-as-it-was", title: "As It Was", artist: "Harry Styles", primaryArtist: "Harry Styles", album: "Harry's House", source: "itunes", metadataSource: "itunes", rank: 1, popularity: 97, confidence: 1 },
+  { id: "recommendation-flowers", title: "Flowers", artist: "Miley Cyrus", primaryArtist: "Miley Cyrus", album: "Endless Summer Vacation", source: "itunes", metadataSource: "itunes", rank: 2, popularity: 96, confidence: 1 },
+  { id: "recommendation-levitating", title: "Levitating", artist: "Dua Lipa", primaryArtist: "Dua Lipa", album: "Future Nostalgia", source: "itunes", metadataSource: "itunes", rank: 3, popularity: 96, confidence: 1 },
+  { id: "recommendation-shape-of-you", title: "Shape of You", artist: "Ed Sheeran", primaryArtist: "Ed Sheeran", album: "÷ (Divide)", source: "itunes", metadataSource: "itunes", rank: 4, popularity: 98, confidence: 1 },
+  { id: "recommendation-anti-hero", title: "Anti-Hero", artist: "Taylor Swift", primaryArtist: "Taylor Swift", album: "Midnights", source: "itunes", metadataSource: "itunes", rank: 5, popularity: 96, confidence: 1 },
+  { id: "recommendation-cruel-summer", title: "Cruel Summer", artist: "Taylor Swift", primaryArtist: "Taylor Swift", album: "Lover", source: "itunes", metadataSource: "itunes", rank: 6, popularity: 97, confidence: 1 },
+  { id: "recommendation-espresso", title: "Espresso", artist: "Sabrina Carpenter", primaryArtist: "Sabrina Carpenter", album: "Short n' Sweet", source: "itunes", metadataSource: "itunes", rank: 7, popularity: 95, confidence: 1 },
+  { id: "recommendation-stay", title: "Stay", artist: "The Kid LAROI & Justin Bieber", primaryArtist: "The Kid LAROI", album: "F*CK LOVE 3: OVER YOU", source: "itunes", metadataSource: "itunes", rank: 8, popularity: 94, confidence: 1 },
+  { id: "recommendation-watermelon-sugar", title: "Watermelon Sugar", artist: "Harry Styles", primaryArtist: "Harry Styles", album: "Fine Line", source: "itunes", metadataSource: "itunes", rank: 9, popularity: 94, confidence: 1 },
+  { id: "recommendation-bad-guy", title: "Bad Guy", artist: "Billie Eilish", primaryArtist: "Billie Eilish", album: "WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?", source: "itunes", metadataSource: "itunes", rank: 10, popularity: 97, confidence: 1 },
+  { id: "recommendation-uptown-funk", title: "Uptown Funk", artist: "Mark Ronson ft. Bruno Mars", primaryArtist: "Mark Ronson", album: "Uptown Special", source: "itunes", metadataSource: "itunes", rank: 11, popularity: 96, confidence: 1 },
+  { id: "recommendation-cheap-thrills", title: "Cheap Thrills", artist: "Sia", primaryArtist: "Sia", album: "This Is Acting", source: "itunes", metadataSource: "itunes", rank: 12, popularity: 93, confidence: 1 },
+  { id: "recommendation-dance-monkey", title: "Dance Monkey", artist: "Tones and I", primaryArtist: "Tones and I", album: "The Kids Are Coming", source: "itunes", metadataSource: "itunes", rank: 13, popularity: 94, confidence: 1 },
+];
 
 interface HeroCardData {
   id: string;
@@ -178,6 +203,8 @@ type IconName =
   | "queue"
   | "volume"
   | "volume-low"
+  | "sun"
+  | "moon"
   | "expand"
   | "chevron-right"
   | "plus"
@@ -242,6 +269,12 @@ function Icon({ name, size = 18 }: IconProps) {
       break;
     case "volume-low":
       content = <><path d="M4 10v4h3l4 3V7l-4 3H4Z" /><path d="M15 9.5a3.5 3.5 0 0 1 0 5" /></>;
+      break;
+    case "sun":
+      content = <><circle cx="12" cy="12" r="3.5" /><path d="M12 2.5v2M12 19.5v2M4.5 4.5l1.4 1.4M18.1 18.1l1.4 1.4M2.5 12h2M19.5 12h2M4.5 19.5l1.4-1.4M18.1 5.9l1.4-1.4" /></>;
+      break;
+    case "moon":
+      content = <path d="M20.3 15.2A8.5 8.5 0 0 1 8.8 3.7 8.5 8.5 0 1 0 20.3 15.2Z" />;
       break;
     case "expand":
       content = <><path d="M8 4H4v4M16 4h4v4M20 16v4h-4M4 16v4h4" /><path d="m4 4 5 5M20 4l-5 5M20 20l-5-5M4 20l5-5" /></>;
@@ -340,6 +373,14 @@ export function BrowseShell({
   profileName = "Alex Morgan",
 }: BrowseShellProps) {
   const [activeSection, setActiveSection] = useState<BrowseSection>("New");
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "light";
+    try {
+      return window.localStorage.getItem(THEME_STORAGE_KEY) === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  });
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
   const [localVolume, setLocalVolume] = useState(volume ?? 0.72);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -347,6 +388,14 @@ export function BrowseShell({
   useEffect(() => {
     if (volume !== undefined) setLocalVolume(volume);
   }, [volume]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }, [theme]);
 
   const selectSection = (section: BrowseSection) => {
     setActiveSection(section);
@@ -364,7 +413,19 @@ export function BrowseShell({
     }
   };
 
-  const heroCards: HeroCardData[] = playlist.length
+  const isCuratedSection = !searchQuery.trim() && (activeSection === "Home" || activeSection === "New");
+
+  const heroCards: HeroCardData[] = isCuratedSection
+    ? POPULAR_RECOMMENDATIONS.slice(0, 3).map((recommendation, index) => ({
+        id: recommendation.id,
+        eyebrow: index === 0 ? "TOP POP PICK" : "MADE FOR YOU",
+        title: recommendation.title,
+        artist: recommendation.artist,
+        description: recommendation.album ? `${recommendation.album} · a familiar favorite, ready to rediscover.` : "A familiar favorite, ready to rediscover.",
+        tone: (["coral", "lavender", "mint"] as Tone[])[index % 3],
+        item: recommendation,
+      }))
+    : playlist.length
     ? playlist.slice(0, 3).map((track, index) => ({
         id: `playlist-hero-${String(track.id)}`,
         eyebrow: index === 0 ? "YOUR MUSIC" : "UP NEXT",
@@ -388,11 +449,15 @@ export function BrowseShell({
         }))
       : FALLBACK_HEROES;
 
-  const mediaItems: MediaItem[] = playlist.length
+  const mediaItems: MediaItem[] = isCuratedSection
+    ? POPULAR_RECOMMENDATIONS
+    : playlist.length
     ? playlist.slice(0, 6)
     : searchResults.slice(0, 6);
 
-  const albumItems: MediaItem[] = playlist.length
+  const albumItems: MediaItem[] = isCuratedSection
+    ? POPULAR_RECOMMENDATIONS.slice(4, 9)
+    : playlist.length
     ? playlist.slice(0, 5)
     : searchResults.slice(0, 5);
 
@@ -406,7 +471,7 @@ export function BrowseShell({
   const displayVolume = Math.min(Math.max(volume ?? localVolume, 0), 1);
 
   return (
-    <div className="apple-browse-shell">
+    <div className={`apple-browse-shell ${theme === "dark" ? "apple-browse-shell--dark" : ""}`} data-theme={theme}>
       <div className="apple-shell-layout">
         <aside className="apple-sidebar" aria-label="Glass Player sidebar">
           <div className="apple-brand-lockup">
@@ -461,30 +526,43 @@ export function BrowseShell({
               <p>Find something beautiful to listen to.</p>
             </div>
 
-            <form className="apple-search-form" onSubmit={handleSearchSubmit} role="search">
-              <Icon name="search" size={18} />
-              <input
-                type="search"
-                ref={searchInputRef}
-                value={searchQuery}
-                onChange={(event) => onSearchQueryChange(event.target.value)}
-                placeholder="Search songs, artists, albums"
-                aria-label="Search songs, artists, albums"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  className="apple-search-clear"
-                  aria-label="Clear search"
-                  onClick={() => onSearchQueryChange("")}
-                >
-                  ×
-                </button>
-              )}
-              <button type="submit" className="apple-search-submit" aria-label="Submit search">
-                <span>Search</span>
+            <div className="apple-header-tools">
+              <button
+                type="button"
+                className="apple-theme-toggle"
+                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+                aria-pressed={theme === "dark"}
+                title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+                onClick={() => setTheme((currentTheme) => currentTheme === "dark" ? "light" : "dark")}
+              >
+                <Icon name={theme === "dark" ? "sun" : "moon"} size={16} />
+                <span>{theme === "dark" ? "Light" : "Dark"}</span>
               </button>
-            </form>
+              <form className="apple-search-form" onSubmit={handleSearchSubmit} role="search">
+                <Icon name="search" size={18} />
+                <input
+                  type="search"
+                  ref={searchInputRef}
+                  value={searchQuery}
+                  onChange={(event) => onSearchQueryChange(event.target.value)}
+                  placeholder="Search songs, artists, albums"
+                  aria-label="Search songs, artists, albums"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    className="apple-search-clear"
+                    aria-label="Clear search"
+                    onClick={() => onSearchQueryChange("")}
+                  >
+                    ×
+                  </button>
+                )}
+                <button type="submit" className="apple-search-submit" aria-label="Submit search">
+                  <span>Search</span>
+                </button>
+              </form>
+            </div>
           </header>
 
           {searchQuery.trim() && (
@@ -521,7 +599,7 @@ export function BrowseShell({
               {heroCards.map((hero, index) => (
                 <article key={hero.id} className={`apple-hero-card apple-hero-card--${hero.tone} ${index === 0 ? "apple-hero-card--feature" : ""}`}>
                   <div className="apple-hero-orb" aria-hidden="true" />
-                  {hero.artworkUrl && <Artwork src={hero.artworkUrl} title={hero.title} tone={hero.tone} className="apple-artwork--hero" />}
+                  <Artwork src={hero.artworkUrl} title={hero.title} tone={hero.tone} className="apple-artwork--hero" />
                   <div className="apple-hero-content">
                     <span className="apple-overline">{hero.eyebrow}</span>
                     <h2>{hero.title}</h2>
@@ -545,13 +623,13 @@ export function BrowseShell({
               <div className="apple-section-heading">
                 <div>
                   <span className="apple-overline">CURATED FOR YOU</span>
-                  <h2 id="viral-heading">Favourite These Viral Hits</h2>
+                  <h2 id="viral-heading">{isCuratedSection ? "Top Pop Picks" : "Favourite These Viral Hits"}</h2>
                 </div>
-                <button type="button" className="apple-see-all">See All <Icon name="chevron-right" size={15} /></button>
+                <span className="apple-section-note">{isCuratedSection ? "14 songs you already know by heart" : "The songs people are replaying"}</span>
               </div>
               <div className="apple-viral-grid">
                 {mediaItems.length ? mediaItems.map((item, index) => (
-                  <button key={String(item.id)} type="button" className="apple-viral-row" onClick={() => selectMedia(item)}>
+                  <button key={String(item.id)} type="button" className={`apple-viral-row ${isCuratedSection ? "apple-viral-row--recommendation" : ""}`} onClick={() => selectMedia(item)}>
                     <span className="apple-track-number">{String(index + 1).padStart(2, "0")}</span>
                     <Artwork src={getArtworkUrl(item)} title={item.title} tone={(["coral", "blue", "mint", "lavender", "sunset", "peach"] as Tone[])[index % 6]} className="apple-artwork--row" />
                     <span className="apple-track-copy"><strong>{item.title}</strong><small>{item.artist}</small></span>
@@ -574,9 +652,9 @@ export function BrowseShell({
               <div className="apple-section-heading">
                 <div>
                   <span className="apple-overline">JUST DROPPED</span>
-                  <h2 id="week-heading">New This Week</h2>
+                  <h2 id="week-heading">{isCuratedSection ? "Made for you" : "New This Week"}</h2>
                 </div>
-                <button type="button" className="apple-see-all">See All <Icon name="chevron-right" size={15} /></button>
+                <span className="apple-section-note">{isCuratedSection ? "More color for the queue" : "Fresh albums and singles"}</span>
               </div>
               <div className="apple-album-grid">
                 {albumItems.length ? albumItems.map((item, index) => (
