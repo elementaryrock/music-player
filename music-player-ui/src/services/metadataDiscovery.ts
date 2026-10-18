@@ -28,8 +28,13 @@ export {
   searchITunes,
   searchITunesSongs,
   upgradeITunesArtworkUrl,
+  getITunesPreviewUrl,
+  getCanonicalQueryHint,
+  expandITunesSearchQueries,
+  CANONICAL_QUERY_HINTS,
 } from "./itunesApi";
 export type {
+  CanonicalQueryHint,
   ITunesSearchOptions,
   ITunesSearchResponse,
   ITunesSong,

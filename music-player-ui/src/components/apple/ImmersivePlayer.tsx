@@ -170,6 +170,43 @@ export const ImmersivePlayer = ({
   }, [track.albumArtUrl, track.id]);
 
   useEffect(() => {
+    if (!open || typeof window === "undefined") {
+      return undefined;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      event.preventDefault();
+      onClose();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose, open]);
+
+  useEffect(() => {
+    if (!open || typeof document === "undefined") {
+      return undefined;
+    }
+
+    const documentElement = document.documentElement;
+    const body = document.body;
+    const previousDocumentOverflow = documentElement.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+
+    documentElement.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+
+    return () => {
+      documentElement.style.overflow = previousDocumentOverflow;
+      body.style.overflow = previousBodyOverflow;
+    };
+  }, [open]);
+
+  useEffect(() => {
     let disposed = false;
     let fadeFrame: number | undefined;
     let fadeTimer: number | undefined;
@@ -246,7 +283,8 @@ export const ImmersivePlayer = ({
             onClick={onClose}
             type="button"
           >
-            <AppleIcon name="close" size={23} />
+            <AppleIcon name="arrow-left" size={20} />
+            <span className="apple-immersive-player__icon-button-label">Back</span>
           </button>
           <div className="apple-immersive-player__topbar-label">
             <span>Now playing</span>

@@ -40,8 +40,25 @@ const LOCAL_PLAYLIST: Track[] = [
   },
 ];
 
+type AppTrack = Track & {
+  isPreview?: boolean;
+  playbackKind?: "full" | "preview";
+  previewUrl?: string;
+};
+
+const isPreviewTrack = (track: Track | null): boolean => {
+  if (!track) return false;
+  const appTrack = track as AppTrack;
+  const resolution = track.streamResolution;
+  return appTrack.isPreview === true ||
+    appTrack.playbackKind === "preview" ||
+    resolution?.isPreview === true ||
+    resolution?.source === "itunes";
+};
+
 const qualityLabel = (track: Track | null): string => {
   if (!track) return "Standard";
+  if (isPreviewTrack(track)) return "Preview";
   if (track.streamResolution?.qualityLabel) return track.streamResolution.qualityLabel;
 
   switch (track.streamQuality) {
@@ -71,7 +88,10 @@ const sourceLabel = (track: Track | null): string => {
   }
 };
 
-const toTrack = (result: SearchResult): Track => ({
+const toTrack = (result: SearchResult): AppTrack => ({
+  // Preserve any preview metadata added by the discovery/resolver contract.
+  // Explicit fields below keep the existing Track shape canonical.
+  ...result,
   id: result.id,
   title: result.title,
   artist: result.artist,
@@ -88,6 +108,8 @@ const toTrack = (result: SearchResult): Track => ({
   isrc: result.isrc,
   providerMetadata: result.providerMetadata,
   audioCandidates: result.audioCandidates,
+  previewUrl: result.previewUrl,
+  isPreview: result.isPreview,
   streamQuality: result.quality,
   streamMatchConfidence: result.streamMatchConfidence,
 });
@@ -105,6 +127,7 @@ function App() {
   const [showQueue, setShowQueue] = useState(false);
   const [isResolving, setIsResolving] = useState(false);
   const [appError, setAppError] = useState<string | null>(null);
+  const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -115,6 +138,11 @@ function App() {
   const searchRequestRef = useRef(0);
   const resolutionAbortRef = useRef<AbortController | null>(null);
   const retryRef = useRef<(() => void) | null>(null);
+  const mediaGenerationRef = useRef(0);
+  const pendingPlayRef = useRef(false);
+  const playAttemptGenerationRef = useRef<number | null>(null);
+  const mediaTransitionRef = useRef(false);
+  const activeAudioSourceRef = useRef<string | null>(null);
 
   const currentTrackIndex = useMemo(
     () => (currentTrack ? playlist.findIndex((track) => track.id === currentTrack.id) : -1),
@@ -122,6 +150,57 @@ function App() {
   );
   const isLiked = currentTrack ? favoriteIds.has(currentTrack.id) : false;
   const displayError = appError || searchError;
+
+  const attemptPlayback = useCallback((generation: number) => {
+    const audio = audioRef.current;
+    if (
+      !audio ||
+      generation !== mediaGenerationRef.current ||
+      !pendingPlayRef.current ||
+      !currentTrack?.audioSrc
+    ) {
+      return;
+    }
+
+    // The readiness listeners call this function, so a second state effect can
+    // safely ask for playback without issuing two concurrent play() requests.
+    if (audio.readyState < 1 || playAttemptGenerationRef.current === generation) return;
+    if (!audio.paused) {
+      pendingPlayRef.current = false;
+      return;
+    }
+
+    playAttemptGenerationRef.current = generation;
+    let playPromise: Promise<void>;
+    try {
+      playPromise = audio.play();
+    } catch (error) {
+      playAttemptGenerationRef.current = null;
+      const errorName = error instanceof Error ? error.name : undefined;
+      if (generation !== mediaGenerationRef.current || !pendingPlayRef.current || errorName === "AbortError") return;
+      pendingPlayRef.current = false;
+      setIsPlaying(false);
+      setPlaybackNotice(null);
+      setAppError("Playback was blocked by the browser. Press play to try again.");
+      return;
+    }
+
+    void playPromise.then(() => {
+      if (generation !== mediaGenerationRef.current) return;
+      pendingPlayRef.current = false;
+      playAttemptGenerationRef.current = null;
+    }).catch((error: unknown) => {
+      playAttemptGenerationRef.current = null;
+      const errorName = error instanceof Error ? error.name : undefined;
+      // AbortError is expected while a source is being replaced or paused. A
+      // real media-policy failure is surfaced after the source is ready.
+      if (generation !== mediaGenerationRef.current || !pendingPlayRef.current || errorName === "AbortError") return;
+      pendingPlayRef.current = false;
+      setIsPlaying(false);
+      setPlaybackNotice(null);
+      setAppError("Playback was blocked by the browser. Press play to try again.");
+    });
+  }, [currentTrack?.audioSrc]);
 
   const commitTrack = useCallback((track: Track, shouldPlay = true) => {
     setPlaylist((currentPlaylist) => {
@@ -136,6 +215,7 @@ function App() {
     setIsPlaying(shouldPlay);
     setCurrentTime(0);
     setAppError(null);
+    setPlaybackNotice(null);
   }, []);
 
   const handleSearch = useCallback(async (query: string) => {
@@ -183,6 +263,7 @@ function App() {
     resolutionAbortRef.current = controller;
     setIsResolving(true);
     setAppError(null);
+    setPlaybackNotice(null);
     setSearchError(null);
     retryRef.current = () => {
       void handleResultSelect(result);
@@ -197,20 +278,24 @@ function App() {
 
       if (controller.signal.aborted) return;
       if (!resolved) {
-        throw new Error("No verified Tidal or JioSaavn stream matched this recording.");
+        throw new Error("No verified Tidal or JioSaavn stream, or matching iTunes preview, was available.");
       }
 
-      commitTrack(
-        {
-          ...metadataTrack,
-          audioSrc: resolved.audioSrc,
-          source: resolved.source,
-          streamQuality: resolved.quality,
-          streamMatchConfidence: resolved.matchConfidence,
-          streamResolution: resolved,
-        },
-        true,
-      );
+      const resolvedPreview = resolved.isPreview || resolved.source === "itunes";
+      const resolvedTrack: AppTrack = {
+        ...metadataTrack,
+        audioSrc: resolved.audioSrc,
+        source: resolved.source,
+        streamQuality: resolved.quality,
+        streamMatchConfidence: resolved.matchConfidence,
+        streamResolution: resolved,
+        isPreview: resolvedPreview,
+        playbackKind: resolvedPreview ? "preview" : "full",
+      };
+      commitTrack(resolvedTrack, true);
+      if (resolvedPreview) {
+        setPlaybackNotice("Preview only · playing a short iTunes preview because no verified full stream was available.");
+      }
       setSearchQuery("");
       setSearchResults([]);
     } catch (error) {
@@ -277,15 +362,29 @@ function App() {
   }, [currentTrack]);
 
   const handleAudioError = useCallback(() => {
+    const audio = audioRef.current;
+    const activeSource = activeAudioSourceRef.current;
+    if (!audio || !activeSource || !currentTrack?.audioSrc || activeSource !== currentTrack.audioSrc) return;
+
+    // The browser emits MEDIA_ERR_ABORTED while load() replaces a source. It
+    // is a normal transition and should not flash an actionable error.
+    if (audio.error?.code === 1) return;
+
+    mediaTransitionRef.current = false;
+    pendingPlayRef.current = false;
+    playAttemptGenerationRef.current = null;
     setIsPlaying(false);
+    setPlaybackNotice(null);
     setAppError("Audio couldn't load. Check your connection or choose a local track from the queue.");
     retryRef.current = () => {
-      const audio = audioRef.current;
-      if (!audio) return;
-      audio.load();
+      const retryAudio = audioRef.current;
+      if (!retryAudio) return;
+      pendingPlayRef.current = true;
+      setAppError(null);
       setIsPlaying(true);
+      retryAudio.load();
     };
-  }, []);
+  }, [currentTrack?.audioSrc]);
 
   const handleAudioEnded = useCallback(() => {
     const nextTrack = currentTrackIndex >= 0 ? playlist[currentTrackIndex + 1] : undefined;
@@ -297,6 +396,10 @@ function App() {
     }
   }, [commitTrack, currentTrackIndex, duration, playlist]);
 
+  const handleCloseImmersive = useCallback(() => {
+    setShowImmersive(false);
+  }, []);
+
   useEffect(() => {
     const audio = audioRef.current;
     if (audio) audio.volume = volume;
@@ -304,39 +407,94 @@ function App() {
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !currentTrack) return;
+    const source = currentTrack?.audioSrc?.trim() || "";
+    if (!audio) return undefined;
 
+    const generation = mediaGenerationRef.current + 1;
+    mediaGenerationRef.current = generation;
+    mediaTransitionRef.current = true;
+    pendingPlayRef.current = Boolean(source && isPlaying);
+    playAttemptGenerationRef.current = null;
+    activeAudioSourceRef.current = source || null;
+
+    // onPause is ignored for this synchronous transition so replacing a local
+    // or remote source does not turn the requested next-track play into pause.
     audio.pause();
-    audio.load();
     setCurrentTime(0);
-    setDuration(currentTrack.duration ?? 0);
-    if (isPlaying) {
-      void audio.play().catch(() => {
-        setIsPlaying(false);
-        setAppError("Playback was blocked by the browser. Press play to try again.");
-      });
+    setDuration(currentTrack?.duration ?? 0);
+
+    if (!source) {
+      audio.removeAttribute("src");
+      audio.load();
+      mediaTransitionRef.current = false;
+      setIsPlaying(false);
+      return undefined;
     }
-  // The dependency is intentionally the stream URL: play/pause changes must
-  // not reload the media element.
+
+    const onReady = () => {
+      mediaTransitionRef.current = false;
+      attemptPlayback(generation);
+    };
+    audio.addEventListener("loadedmetadata", onReady);
+    audio.addEventListener("canplay", onReady);
+    audio.load();
+
+    // A cached local asset may already have metadata by the time this effect
+    // runs. The same guarded path handles it without an eager play() call.
+    if (audio.readyState >= 1) onReady();
+
+    return () => {
+      audio.removeEventListener("loadedmetadata", onReady);
+      audio.removeEventListener("canplay", onReady);
+    };
+  // The source effect intentionally reloads only when the URL changes. The
+  // play/pause effect below handles state changes without reloading media.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentTrack?.audioSrc]);
+  }, [currentTrack?.audioSrc, attemptPlayback]);
 
   useEffect(() => {
     const audio = audioRef.current;
-    if (!audio || !currentTrack) return;
+    if (!audio || !currentTrack?.audioSrc) return;
 
-    if (isPlaying) {
-      void audio.play().catch(() => {
-        setIsPlaying(false);
-        setAppError("Playback was blocked by the browser. Press play to try again.");
-      });
-    } else {
+    if (!isPlaying) {
+      pendingPlayRef.current = false;
+      playAttemptGenerationRef.current = null;
       audio.pause();
+      return;
     }
-  }, [currentTrack, isPlaying]);
+
+    pendingPlayRef.current = true;
+    attemptPlayback(mediaGenerationRef.current);
+  }, [attemptPlayback, currentTrack?.audioSrc, isPlaying]);
+
+  useEffect(() => {
+    if (!showImmersive || typeof document === "undefined") return undefined;
+
+    const body = document.body;
+    const documentElement = document.documentElement;
+    const previousBodyOverflow = body.style.overflow;
+    const previousDocumentOverflow = documentElement.style.overflow;
+    body.style.overflow = "hidden";
+    documentElement.style.overflow = "hidden";
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      handleCloseImmersive();
+    };
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      window.removeEventListener("keydown", handleEscape);
+      body.style.overflow = previousBodyOverflow;
+      documentElement.style.overflow = previousDocumentOverflow;
+    };
+  }, [handleCloseImmersive, showImmersive]);
 
   useEffect(() => () => {
     resolutionAbortRef.current?.abort();
+    pendingPlayRef.current = false;
+    playAttemptGenerationRef.current = null;
   }, []);
 
   return (
@@ -394,10 +552,21 @@ function App() {
         onLoadedMetadata={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
         onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
         onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
+        onPause={() => {
+          if (mediaTransitionRef.current || pendingPlayRef.current && (audioRef.current?.readyState ?? 0) < 1) return;
+          pendingPlayRef.current = false;
+          playAttemptGenerationRef.current = null;
+          setIsPlaying(false);
+        }}
         onEnded={handleAudioEnded}
         onError={handleAudioError}
       />
+
+      {playbackNotice && (
+        <div className="app-notice" role="status" aria-live="polite">
+          {playbackNotice}
+        </div>
+      )}
 
       {displayError && (
         <div className="app-error" role="alert">
@@ -444,7 +613,7 @@ function App() {
           currentTime={currentTime}
           duration={duration}
           isLiked={isLiked}
-          onClose={() => setShowImmersive(false)}
+          onClose={handleCloseImmersive}
           onPlayPause={handlePlayPause}
           onPrev={handlePrevious}
           onNext={handleNext}

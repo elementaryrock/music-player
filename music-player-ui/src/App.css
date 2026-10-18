@@ -86,6 +86,11 @@ input:focus-visible {
   background: #f0f1f5;
 }
 
+.app-quality-badge--preview {
+  color: #8a4c18;
+  background: #fff1d9;
+}
+
 .app-source-badge {
   color: #61636c;
   background: rgba(242, 243, 247, 0.95);
@@ -94,6 +99,26 @@ input:focus-visible {
 .app-resolving-badge {
   color: #69707b;
   background: rgba(245, 245, 248, 0.9);
+}
+
+.app-notice {
+  position: fixed;
+  z-index: 890;
+  right: 24px;
+  bottom: 116px;
+  left: 24px;
+  width: min(760px, calc(100% - 48px));
+  margin: 0 auto;
+  padding: 10px 14px;
+  border: 1px solid rgba(191, 132, 42, 0.2);
+  border-radius: 14px;
+  background: rgba(255, 250, 239, 0.95);
+  box-shadow: 0 13px 32px rgba(100, 76, 35, 0.12);
+  color: #865b22;
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+  backdrop-filter: blur(18px);
 }
 
 .app-error {
@@ -252,6 +277,13 @@ input:focus-visible {
     align-items: flex-start;
     flex-direction: column;
     gap: 10px;
+  }
+
+  .app-notice {
+    right: 12px;
+    bottom: 108px;
+    left: 12px;
+    width: auto;
   }
 
   .app-queue {

@@ -4,11 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "test": "node --test scripts/smoke.test.mjs",
-    "preview": "vite preview"
+    "dev": "node node_modules/vite/bin/vite.js",
+    "build": "node node_modules/typescript/bin/tsc -b && node node_modules/vite/bin/vite.js build",
+    "lint": "node node_modules/eslint/bin/eslint.js .",
+    "test": "node --test scripts/smoke.test.mjs scripts/lyrics.test.mjs",
+    "preview": "node node_modules/vite/bin/vite.js preview"
   },
   "dependencies": {
     "phosphor-react": "^1.4.1",

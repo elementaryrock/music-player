@@ -7,7 +7,7 @@
 
 import { searchSongs as searchJioSaavn } from './api';
 import { searchTidalSongs } from './tidalApi';
-import { searchITunesSongs } from './itunesApi';
+import { getCanonicalQueryHint, searchITunesSongs } from './itunesApi';
 import type {
   AudioCandidate,
   DiscoveryProvider,
@@ -31,6 +31,8 @@ export interface SearchResult {
   artworkUrl?: string;
   audioUrl?: string;
   audioCandidates?: AudioCandidate[];
+  previewUrl?: string;
+  isPreview?: boolean;
   metadataSource?: DiscoveryProvider;
   explicit?: boolean;
   popularity?: number;
@@ -51,6 +53,10 @@ export interface SearchEngineConfig {
   sources: SearchProvider[];
   cacheTimeout: number; // Cache TTL in milliseconds
   retryAttempts: number;
+  /** Maximum time an optional provider may hold global discovery open. */
+  providerTimeoutMs?: number;
+  /** Cooldown after an unavailable Tidal endpoint, avoiding retry storms. */
+  tidalFailureCooldownMs?: number;
 }
 
 export interface SearchState {
@@ -101,6 +107,9 @@ export const createDedupeKey = createTrackDedupeKey;
 const clamp = (value: number, min = 0, max = 1): number =>
   Math.min(max, Math.max(min, value));
 
+const DEFAULT_PROVIDER_TIMEOUT_MS = 2200;
+const DEFAULT_TIDAL_FAILURE_COOLDOWN_MS = 30_000;
+
 const parseSearchQuery = (query: string): { title: string; artist?: string } => {
   const trimmed = query.trim();
   const byMatch = trimmed.match(/^(.+?)\s+by\s+(.+)$/i);
@@ -108,6 +117,12 @@ const parseSearchQuery = (query: string): { title: string; artist?: string } => 
 
   const dashMatch = trimmed.match(/^(.+?)\s+-\s+(.+)$/);
   if (dashMatch) return { title: dashMatch[2].trim(), artist: dashMatch[1].trim() };
+
+  // Also accept the compact artist/title notation used by several search
+  // surfaces (for example "Djo/End of Beginning"). Requiring a slash keeps
+  // this separate from ordinary bare-title matching.
+  const slashMatch = trimmed.match(/^(.+?)\s*\/\s*(.+)$/);
+  if (slashMatch) return { title: slashMatch[2].trim(), artist: slashMatch[1].trim() };
 
   return { title: trimmed };
 };
@@ -131,8 +146,8 @@ const popularityBoost = (value: unknown): number => {
   return clamp(normalized) * 0.12;
 };
 
-const resultVersionPenalty = (title: string, query: string): number => {
-  const normalizedTitle = normalizeTitle(title);
+const resultVersionPenalty = (title: string, query: string, artist = ''): number => {
+  const normalizedTitle = `${normalizeTitle(title)} ${normalizeArtist(artist)}`.trim();
   const normalizedQuery = normalizeTitle(query);
   const versionTerms = [
     'cover',
@@ -150,9 +165,20 @@ const resultVersionPenalty = (title: string, query: string): number => {
     'slowed',
   ];
   return versionTerms.some((term) => normalizedTitle.includes(term) && !normalizedQuery.includes(term))
-    ? 0.22
+    ? 0.3
     : 0;
 };
+
+const canonicalArtistScore = (
+  normalizedArtist: string,
+  aliases: readonly string[]
+): number => aliases.reduce((best, alias) => {
+  const normalizedAlias = normalizeArtist(alias);
+  if (!normalizedAlias) return best;
+  if (normalizedArtist === normalizedAlias) return Math.max(best, 1);
+  if (normalizedArtist.includes(normalizedAlias)) return Math.max(best, 0.92);
+  return Math.max(best, tokenSimilarity(normalizedArtist, normalizedAlias));
+}, 0);
 
 /** Deterministic 0..1 relevance score used for every metadata provider. */
 export const calculateRelevanceScore = (
@@ -165,11 +191,18 @@ export const calculateRelevanceScore = (
   const normalizedArtist = normalizeArtist(result.primaryArtist || result.artist);
   const normalizedTitleQuery = normalizeTitle(parsed.title);
   const normalizedRawQuery = normalizeTitle(query);
-
-  const titleScore = normalizedTitle === normalizedTitleQuery
-    ? 1
-    : tokenSimilarity(normalizedTitle, normalizedTitleQuery);
   const requestedArtist = parsed.artist ? normalizeArtist(parsed.artist) : undefined;
+  const canonicalHint = requestedArtist ? undefined : getCanonicalQueryHint(parsed.title);
+  const canonicalTitleQuery = canonicalHint
+    ? normalizeTitle(canonicalHint.queryAliases[0] || parsed.title)
+    : normalizedTitleQuery;
+
+  const titleScore = Math.max(
+    normalizedTitle === normalizedTitleQuery ? 1 : tokenSimilarity(normalizedTitle, normalizedTitleQuery),
+    canonicalHint
+      ? normalizedTitle === canonicalTitleQuery ? 1 : tokenSimilarity(normalizedTitle, canonicalTitleQuery)
+      : 0
+  );
   let artistScore = requestedArtist
     ? tokenSimilarity(normalizedArtist, requestedArtist)
     : normalizedArtist === normalizedRawQuery
@@ -182,12 +215,20 @@ export const calculateRelevanceScore = (
   // even when their titles happen to contain the query terms.
   const artistPenalty = requestedArtist && artistScore < 0.45 ? 0.18 : 0;
   artistScore = clamp(artistScore);
+  // Bare titles are often overloaded by regional catalogs. A small,
+  // documented alias table supplies an artist signal for canonical recordings
+  // without embedding a fixed result list or affecting explicit artist
+  // queries.
+  const canonicalScore = canonicalHint
+    ? canonicalArtistScore(normalizedArtist, canonicalHint.artistAliases)
+    : 0;
+  const canonicalBoost = canonicalScore * 0.3;
   const rankBoost = clamp(1 - Math.max(0, index) / 20) * 0.08;
   const providerBoost = result.source === 'tidal' ? 0.04 : result.source === 'itunes' ? 0.02 : 0;
-  const versionPenalty = resultVersionPenalty(result.title, query);
+  const versionPenalty = resultVersionPenalty(result.title, query, result.artist);
 
   return clamp(
-    titleScore * 0.57 + artistScore * 0.24 + popularityBoost(result.popularity) +
+    titleScore * 0.57 + artistScore * 0.24 + canonicalBoost + popularityBoost(result.popularity) +
       rankBoost + providerBoost - versionPenalty - artistPenalty
   );
 };
@@ -248,6 +289,10 @@ export const mergeSearchResults = (
       duration: winner.duration ?? loser.duration,
       explicit: winner.explicit ?? loser.explicit,
       isrc: winner.isrc || loser.isrc,
+      previewUrl: winner.previewUrl || loser.previewUrl,
+      // A merged Tidal/Jio result may retain an iTunes candidate for fallback,
+      // but the metadata result itself is not a preview unless iTunes won.
+      isPreview: winner.source === "itunes" ? winner.isPreview : undefined,
       audioUrl: winner.audioUrl || (winner.source === loser.source ? loser.audioUrl : undefined),
       metadataSource: winner.metadataSource || loser.metadataSource,
       providerMetadata: winner.providerMetadata || loser.providerMetadata,
@@ -275,6 +320,7 @@ export class SearchEngine {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private searchHistory: string[] = [];
   private abortController: AbortController | null = null;
+  private tidalUnavailableUntil = 0;
 
   constructor(config: Partial<SearchEngineConfig> = {}) {
     this.config = {
@@ -285,7 +331,11 @@ export class SearchEngine {
       // only a supplemental/fallback source for discovery and playback.
       sources: ['tidal', 'itunes', 'jiosaavn'],
       cacheTimeout: 5 * 60 * 1000, // 5 minutes
-      retryAttempts: 3,
+      // Optional providers get one bounded attempt by default. Callers that
+      // explicitly need retries can still opt into them in the config.
+      retryAttempts: 1,
+      providerTimeoutMs: DEFAULT_PROVIDER_TIMEOUT_MS,
+      tidalFailureCooldownMs: DEFAULT_TIDAL_FAILURE_COOLDOWN_MS,
       ...config,
     };
 
@@ -367,8 +417,6 @@ export class SearchEngine {
       results.forEach((result, index) => {
         if (result.status === 'fulfilled') {
           allResults.push(...result.value);
-        } else {
-          console.warn(`Search failed for source ${searchTasks[index]?.source}:`, result.reason);
         }
       });
 
@@ -416,11 +464,12 @@ export class SearchEngine {
    * Search JioSaavn with error handling and retry logic
    */
   private async searchJioSaavn(query: string, maxResults: number): Promise<SearchResult[]> {
-    let lastError: Error | null = null;
-    
     for (let attempt = 1; attempt <= this.config.retryAttempts; attempt++) {
       try {
-        const response = await searchJioSaavn(query, 0, maxResults);
+        const response = await this.withTimeout(
+          searchJioSaavn(query, 0, maxResults),
+          this.config.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS
+        );
         
         if (!response?.results) {
           throw new Error('Invalid JioSaavn response structure');
@@ -466,9 +515,7 @@ export class SearchEngine {
           };
         });
 
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error('JioSaavn search failed');
-        console.warn(`JioSaavn search attempt ${attempt} failed:`, error);
+      } catch {
         
         if (attempt < this.config.retryAttempts) {
           // Exponential backoff
@@ -477,75 +524,73 @@ export class SearchEngine {
       }
     }
 
-    // If all retries failed, log error but don't throw (allow other sources to work)
-    console.error('JioSaavn search failed after all retries:', lastError);
+    // Optional provider failures are isolated from the other indexes.
     return [];
   }
 
   /**
-   * Search Tidal with error handling and retry logic (now using HiFi API)
+   * Search Tidal with one bounded optional-provider attempt (HiFi API).
    */
   private async searchTidal(query: string, maxResults: number): Promise<SearchResult[]> {
-    let lastError: Error | null = null;
-    
-    for (let attempt = 1; attempt <= this.config.retryAttempts; attempt++) {
-      try {
-        // Metadata only: stream resolution is intentionally deferred to
-        // resolveTrackStream so a metadata outage never becomes an audio
-        // provider dependency.
-        const response = await searchTidalSongs(query, maxResults, 0);
-        if (response?.items && Array.isArray(response.items)) {
-          return response.items.map((track: any, index: number): SearchResult => {
-            const artist = this.extractTidalArtist(track);
-            const title = track.title || 'Unknown Title';
-            const providerMetadata: ProviderMetadata = {
-              provider: 'tidal',
-              providerId: track.id,
-              rank: index,
-              popularity: this.toNumber(track.popularity),
-              isrc: this.extractIsrc(track),
-              sourceUrl: typeof track.url === 'string' ? track.url : undefined,
-              raw: track,
-            };
-            return {
-              id: `tidal_${track.id ?? index}`,
-              title,
-              artist,
-              primaryArtist: artist,
-              album: track.album?.title || track.album?.name || track.album,
-              duration: this.parseDuration(track.duration),
-              source: 'tidal',
-              metadataSource: 'tidal',
-              imageUrl: this.extractTidalImageUrl(track),
-              artworkUrl: this.extractTidalImageUrl(track),
-              audioUrl: undefined,
-              explicit: typeof track.explicit === 'boolean' ? track.explicit : undefined,
-              popularity: providerMetadata.popularity,
-              rank: index,
-              isrc: providerMetadata.isrc,
-              providerMetadata,
-              providers: [providerMetadata],
-              confidence: this.calculateConfidence({ ...track, title, artist, source: 'tidal' }, query, index),
-              originalData: track,
-            };
-          });
-        }
+    if (Date.now() < this.tidalUnavailableUntil) return [];
+
+    try {
+      // Metadata only: stream resolution is intentionally deferred to
+      // resolveTrackStream so a metadata outage never becomes an audio
+      // provider dependency. Tidal is optional, so one bounded attempt is
+      // preferable to repeating an unreachable endpoint's own fallbacks.
+      const response = await this.withTimeout(
+        searchTidalSongs(query, maxResults, 0),
+        this.config.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS
+      );
+      if (response === null) {
+        this.tidalUnavailableUntil = Date.now() +
+          (this.config.tidalFailureCooldownMs ?? DEFAULT_TIDAL_FAILURE_COOLDOWN_MS);
         return [];
-
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error('HiFi Tidal search failed');
-        console.warn(`HiFi Tidal search attempt ${attempt} failed:`, error);
-        
-        if (attempt < this.config.retryAttempts) {
-          // Exponential backoff
-          await this.wait(Math.pow(2, attempt) * 1000);
-        }
       }
+      if (Array.isArray(response.items)) {
+        return response.items.map((track: any, index: number): SearchResult => {
+          const artist = this.extractTidalArtist(track);
+          const title = track.title || 'Unknown Title';
+          const providerMetadata: ProviderMetadata = {
+            provider: 'tidal',
+            providerId: track.id,
+            rank: index,
+            popularity: this.toNumber(track.popularity),
+            isrc: this.extractIsrc(track),
+            sourceUrl: typeof track.url === 'string' ? track.url : undefined,
+            raw: track,
+          };
+          return {
+            id: `tidal_${track.id ?? index}`,
+            title,
+            artist,
+            primaryArtist: artist,
+            album: track.album?.title || track.album?.name || track.album,
+            duration: this.parseDuration(track.duration),
+            source: 'tidal',
+            metadataSource: 'tidal',
+            imageUrl: this.extractTidalImageUrl(track),
+            artworkUrl: this.extractTidalImageUrl(track),
+            audioUrl: undefined,
+            explicit: typeof track.explicit === 'boolean' ? track.explicit : undefined,
+            popularity: providerMetadata.popularity,
+            rank: index,
+            isrc: providerMetadata.isrc,
+            providerMetadata,
+            providers: [providerMetadata],
+            confidence: this.calculateConfidence({ ...track, title, artist, source: 'tidal' }, query, index),
+            originalData: track,
+          };
+        });
+      }
+      // A valid empty result means the endpoint worked; do not cool it down.
+      return [];
+    } catch {
+      this.tidalUnavailableUntil = Date.now() +
+        (this.config.tidalFailureCooldownMs ?? DEFAULT_TIDAL_FAILURE_COOLDOWN_MS);
+      return [];
     }
-
-    // If all retries failed, log error but don't throw (allow other sources to work)
-    console.error('HiFi Tidal search failed after all retries:', lastError);
-    return [];
   }
 
   /** Search the global metadata fallback without ever requiring audio URLs. */
@@ -575,6 +620,8 @@ export class SearchEngine {
       imageUrl: item.artworkUrl,
       artworkUrl: item.artworkUrl,
       audioCandidates: item.audioCandidates,
+      previewUrl: item.previewUrl,
+      isPreview: item.isPreview,
       explicit: item.explicit,
       popularity: item.popularity,
       rank: item.rank ?? index,
@@ -626,6 +673,22 @@ export class SearchEngine {
           if (settled) return;
           settled = true;
           cleanup();
+          reject(error);
+        }
+      );
+    });
+  }
+
+  private withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timeoutId = setTimeout(() => reject(new Error('Optional provider timed out')), timeoutMs);
+      promise.then(
+        (value) => {
+          clearTimeout(timeoutId);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timeoutId);
           reject(error);
         }
       );

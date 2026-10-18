@@ -1,9 +1,9 @@
 /**
  * Public iTunes Search API adapter.
  *
- * iTunes is used for global metadata discovery only. It does not provide a
- * playable full-track URL, so full stream resolution remains the responsibility
- * of trackResolver.ts.
+ * iTunes is used for global metadata discovery. It does not provide a
+ * playable full-track URL; its optional short preview is exposed explicitly
+ * and full stream resolution remains the responsibility of trackResolver.ts.
  */
 
 import type {
@@ -61,6 +61,66 @@ export interface ITunesSearchOptions {
 const DEFAULT_LIMIT = 25;
 const DEFAULT_TIMEOUT_MS = 7000;
 
+/**
+ * Small, auditable aliases for globally well-known recordings whose bare
+ * title is overloaded by regional catalogs. These are query hints, not a
+ * hard-coded result list: iTunes still supplies and ranks every result.
+ */
+export interface CanonicalQueryHint {
+  queryAliases: readonly string[];
+  artistAliases: readonly string[];
+  expandedQuery: string;
+}
+
+export const CANONICAL_QUERY_HINTS: readonly CanonicalQueryHint[] = [
+  {
+    queryAliases: ["ignite"],
+    artistAliases: ["k-391", "alan walker"],
+    expandedQuery: "Ignite K-391 Alan Walker",
+  },
+  {
+    queryAliases: ["iris", "goo goo dolls iris", "the goo goo dolls iris"],
+    artistAliases: ["goo goo dolls"],
+    expandedQuery: "Iris The Goo Goo Dolls",
+  },
+  {
+    queryAliases: ["end of beginning", "djo end of beginning"],
+    artistAliases: ["djo"],
+    expandedQuery: "End of Beginning Djo",
+  },
+];
+
+const normalizeHintText = (value: string): string =>
+  value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[’'`]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+/** Find a canonical hint for a bare title (or a documented alias). */
+export const getCanonicalQueryHint = (
+  query: string
+): CanonicalQueryHint | undefined => {
+  const normalized = normalizeHintText(query);
+  if (!normalized) return undefined;
+  return CANONICAL_QUERY_HINTS.find((hint) =>
+    hint.queryAliases.some((alias) => normalizeHintText(alias) === normalized)
+  );
+};
+
+/** Return the base query plus at most one deterministic canonical expansion. */
+export const expandITunesSearchQueries = (query: string): string[] => {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const hint = getCanonicalQueryHint(trimmed);
+  return hint && normalizeHintText(hint.expandedQuery) !== normalizeHintText(trimmed)
+    ? [trimmed, hint.expandedQuery]
+    : [trimmed];
+};
+
 const asFiniteNumber = (value: unknown): number | undefined => {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim() !== "") {
@@ -83,6 +143,19 @@ export const getITunesIsrc = (song: ITunesSong): string | undefined =>
       song.externalIds?.isrc ??
       song.externalIds?.isrcs?.[0]
   );
+
+/** Only accept web URLs; never turn arbitrary response text into audio. */
+export const getITunesPreviewUrl = (song: ITunesSong): string | undefined => {
+  if (typeof song.previewUrl !== "string" || !song.previewUrl.trim()) return undefined;
+  try {
+    const url = new URL(song.previewUrl.trim());
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+};
 
 /** Upgrade Apple's small artwork URLs without changing unrelated URLs. */
 export const upgradeITunesArtworkUrl = (url?: string): string | undefined => {
@@ -136,6 +209,7 @@ export const mapITunesSongToMetadata = (
     ? Math.round(durationMs / 1000)
     : undefined;
   const popularity = providerMetadata.popularity;
+  const previewUrl = getITunesPreviewUrl(song);
 
   return {
     id: song.trackId !== undefined ? String(song.trackId) : `itunes-${rank}-${title}`,
@@ -149,8 +223,26 @@ export const mapITunesSongToMetadata = (
     popularity,
     rank,
     isrc: providerMetadata.isrc,
+    previewUrl,
+    isPreview: Boolean(previewUrl),
     metadataProvider: "itunes",
     providerMetadata,
+    audioCandidates: previewUrl
+      ? [
+          {
+            source: "itunes",
+            url: previewUrl,
+            quality: "standard",
+            isPreview: true,
+            title,
+            artist,
+            duration,
+            isrc: providerMetadata.isrc,
+            providerId: song.trackId,
+            providerMetadata,
+          },
+        ]
+      : undefined,
   };
 };
 
@@ -188,15 +280,6 @@ export const searchITunesSongs = async (
   const trimmedQuery = query.trim();
   if (!trimmedQuery) return [];
 
-  const params = new URLSearchParams({
-    term: trimmedQuery,
-    media: "music",
-    entity: "song",
-    limit: String(Math.max(1, Math.min(options.limit ?? DEFAULT_LIMIT, 200))),
-  });
-  if (options.country) params.set("country", options.country);
-  if (options.language) params.set("lang", options.language);
-
   const { controller, cleanup } = createAbortController(
     options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     options.signal
@@ -204,19 +287,51 @@ export const searchITunesSongs = async (
   const fetchImpl = options.fetchImpl ?? fetch;
 
   try {
-    const response = await fetchImpl(`${ITUNES_SEARCH_URL}?${params.toString()}`, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-      signal: controller.signal,
+    const limit = Math.max(1, Math.min(options.limit ?? DEFAULT_LIMIT, 200));
+    const queries = expandITunesSearchQueries(trimmedQuery);
+    const responses = await Promise.allSettled(
+      queries.map(async (searchTerm) => {
+        const params = new URLSearchParams({
+          term: searchTerm,
+          media: "music",
+          entity: "song",
+          limit: String(limit),
+        });
+        if (options.country) params.set("country", options.country);
+        if (options.language) params.set("lang", options.language);
+
+        const response = await fetchImpl(`${ITUNES_SEARCH_URL}?${params.toString()}`, {
+          method: "GET",
+          headers: { Accept: "application/json" },
+          signal: controller.signal,
+        });
+        if (!response.ok) return null;
+        const payload = (await response.json()) as ITunesSearchResponse;
+        return payload && Array.isArray(payload.results) ? payload.results : null;
+      })
+    );
+
+    const seen = new Set<string>();
+    const mapped: UnifiedTrackMetadata[] = [];
+    responses.forEach((settled, queryIndex) => {
+      if (settled.status !== "fulfilled" || !settled.value) return;
+      const results = settled.value;
+      results.forEach((result, resultIndex) => {
+        const metadata = mapITunesSongToMetadata(
+          result as ITunesSong,
+          queryIndex * limit + resultIndex
+        );
+        if (!metadata) return;
+        const providerId = metadata.providerMetadata.providerId;
+        const key = providerId !== undefined && providerId !== null
+          ? `id:${String(providerId)}`
+          : `${normalizeHintText(metadata.title)}|${normalizeHintText(metadata.artist)}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        mapped.push(metadata);
+      });
     });
-    if (!response.ok) return [];
-
-    const payload = (await response.json()) as ITunesSearchResponse;
-    if (!payload || !Array.isArray(payload.results)) return [];
-
-    return payload.results
-      .map((result, index) => mapITunesSongToMetadata(result as ITunesSong, index))
-      .filter((result): result is UnifiedTrackMetadata => result !== null);
+    return mapped;
   } catch {
     return [];
   } finally {

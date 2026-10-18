@@ -4,7 +4,7 @@ import {
   normalizeSearchText,
   type SearchResult,
 } from "../searchEngine";
-import { mapITunesSongToMetadata } from "../itunesApi";
+import { mapITunesSongToMetadata, searchITunesSongs } from "../itunesApi";
 import { matchTrackMetadata, resolveTrackStream } from "../trackResolver";
 
 describe("hybrid metadata discovery", () => {
@@ -45,6 +45,122 @@ describe("hybrid metadata discovery", () => {
       metadataProvider: "itunes",
       rank: 3,
     });
+  });
+
+  it("keeps an iTunes preview as an explicitly marked audio candidate", () => {
+    const mapped = mapITunesSongToMetadata({
+      trackId: 99,
+      trackName: "Ignite",
+      artistName: "K-391, Alan Walker & Julie Bergan",
+      trackTimeMillis: 220000,
+      previewUrl: "https://audio.example.test/ignite-preview.m4a",
+    });
+
+    expect(mapped).toMatchObject({
+      previewUrl: "https://audio.example.test/ignite-preview.m4a",
+      isPreview: true,
+      audioCandidates: [{
+        source: "itunes",
+        isPreview: true,
+        quality: "standard",
+      }],
+    });
+  });
+
+  it("expands overloaded bare titles without hard-coding returned tracks", async () => {
+    const terms: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const term = new URL(String(input)).searchParams.get("term") || "";
+      terms.push(term);
+      return {
+        ok: true,
+        json: async () => ({
+          results: term.includes("K-391")
+            ? [{ trackId: 2, trackName: "Ignite", artistName: "K-391 & Alan Walker" }]
+            : [{ trackId: 1, trackName: "Ignite", artistName: "Eir Aoi" }],
+        }),
+      } as Response;
+    }) as typeof fetch;
+
+    const metadata = await searchITunesSongs("Ignite", { fetchImpl, limit: 5 });
+    expect(terms).toEqual(["Ignite", "Ignite K-391 Alan Walker"]);
+    expect(metadata.map((item) => item.artist)).toEqual([
+      "Eir Aoi",
+      "K-391 & Alan Walker",
+    ]);
+  });
+
+  it("ranks the canonical Ignite recording ahead of regional and version results", () => {
+    const ranked = mergeSearchResults([
+      {
+        id: "eir",
+        title: "Ignite",
+        artist: "Eir Aoi",
+        source: "itunes",
+        rank: 0,
+        confidence: 0,
+      },
+      {
+        id: "k391-remix",
+        title: "Ignite (Remix)",
+        artist: "K-391 & Alan Walker",
+        source: "itunes",
+        rank: 1,
+        confidence: 0,
+      },
+      {
+        id: "k391-cover",
+        title: "Ignite",
+        artist: "K-391 Cover Artist",
+        source: "itunes",
+        rank: 2,
+        confidence: 0,
+      },
+      {
+        id: "k391",
+        title: "Ignite",
+        artist: "K-391 & Alan Walker",
+        source: "itunes",
+        rank: 12,
+        confidence: 0,
+      },
+    ], "Ignite");
+
+    expect(ranked[0]).toMatchObject({ id: "k391", title: "Ignite" });
+  });
+
+  it("keeps common artist/title forms pointed at the canonical recordings", () => {
+    const iris = mergeSearchResults([
+      {
+        id: "regional-iris",
+        title: "Iris",
+        artist: "Various Artists",
+        source: "itunes",
+        rank: 0,
+        confidence: 0,
+      },
+      {
+        id: "goo-iris",
+        title: "Iris",
+        artist: "The Goo Goo Dolls",
+        source: "itunes",
+        rank: 8,
+        confidence: 0,
+      },
+    ], "The Goo Goo Dolls/Iris");
+    const djo = mergeSearchResults([
+      {
+        id: "djo-end",
+        title: "End of Beginning",
+        artist: "Djo",
+        source: "itunes",
+        rank: 6,
+        confidence: 0,
+      },
+    ], "Djo/End of Beginning");
+
+    expect(iris[0].id).toBe("goo-iris");
+    expect(djo[0].id).toBe("djo-end");
   });
 
   it("deduplicates providers while retaining the strongest metadata", () => {
@@ -170,5 +286,67 @@ describe("strict stream resolution", () => {
       quality: "standard",
       matchedBy: "title-artist-duration",
     });
+  });
+
+  it("uses a matching iTunes preview only after strict providers miss", async () => {
+    const metadata = mapITunesSongToMetadata({
+      trackId: 7,
+      trackName: "Halo",
+      artistName: "Beyonce",
+      trackTimeMillis: 261000,
+      previewUrl: "https://audio.example.test/halo-preview.m4a",
+    });
+    const resolved = await resolveTrackStream(
+      {
+        title: "Halo",
+        artist: "Beyonce",
+        duration: 261,
+        audioCandidates: metadata?.audioCandidates,
+      },
+      {
+        timeoutMs: 100,
+        dependencies: {
+          searchTidal: async () => ({ items: [], limit: 5, offset: 0, totalNumberOfItems: 0 }),
+          getTidalTrackById: async () => null,
+          searchJioSaavn: async () => ({ results: [] }),
+        },
+      }
+    );
+
+    expect(resolved).toMatchObject({
+      source: "itunes",
+      isPreview: true,
+      quality: "standard",
+      url: "https://audio.example.test/halo-preview.m4a",
+    });
+    expect(resolved?.confidence).toBeLessThan(0.8);
+  });
+
+  it("does not use a preview whose embedded artist does not match", async () => {
+    const metadata = mapITunesSongToMetadata({
+      trackId: 8,
+      trackName: "Halo",
+      artistName: "Wrong Artist",
+      trackTimeMillis: 261000,
+      previewUrl: "https://audio.example.test/wrong-preview.m4a",
+    });
+    const resolved = await resolveTrackStream(
+      {
+        title: "Halo",
+        artist: "Beyonce",
+        duration: 261,
+        audioCandidates: metadata?.audioCandidates,
+      },
+      {
+        timeoutMs: 100,
+        dependencies: {
+          searchTidal: async () => ({ items: [], limit: 5, offset: 0, totalNumberOfItems: 0 }),
+          getTidalTrackById: async () => null,
+          searchJioSaavn: async () => ({ results: [] }),
+        },
+      }
+    );
+
+    expect(resolved).toBeNull();
   });
 });

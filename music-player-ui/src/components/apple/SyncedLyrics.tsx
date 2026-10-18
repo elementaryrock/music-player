@@ -1,14 +1,20 @@
 import {
+  forwardRef,
+  memo,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import type { CSSProperties } from "react";
 import type { Track } from "../../types/api.types";
 import {
   fetchSyncedLyrics,
   getActiveLyricIndex,
+  getLyricRevealProgress,
+  splitLyricText,
   type LyricsSource,
+  type LyricTextToken,
   type SyncedLyricLine,
 } from "../../utils/lyrics";
 import "./SyncedLyrics.css";
@@ -54,6 +60,172 @@ const usePrefersReducedMotion = (): boolean => {
 
 const sourceLabel = (source: LyricsSource): string =>
   source === "provided" ? "Synced lyrics" : "LRCLIB";
+
+type LyricButtonStyle = CSSProperties & {
+  "--lyric-progress"?: string;
+};
+
+const clampRevealProgress = (value: number): number =>
+  Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
+
+const getWordRevealProgress = (
+  line: SyncedLyricLine,
+  wordIndex: number,
+  wordCount: number,
+  lineProgress: number,
+  currentTime: number,
+  reducedMotion: boolean,
+): number => {
+  if (reducedMotion) {
+    return 1;
+  }
+
+  const word = line.words?.[wordIndex];
+  const wordStart = word?.time ?? word?.startTime;
+  const nextWordStart = line.words?.[wordIndex + 1]
+    ? line.words[wordIndex + 1].time ?? line.words[wordIndex + 1].startTime
+    : undefined;
+  const wordEnd = word?.endTime ?? nextWordStart;
+
+  if (
+    typeof wordStart === "number" &&
+    Number.isFinite(wordStart) &&
+    typeof wordEnd === "number" &&
+    Number.isFinite(wordEnd) &&
+    wordEnd > wordStart
+  ) {
+    return clampRevealProgress((currentTime - wordStart) / (wordEnd - wordStart));
+  }
+
+  if (typeof wordStart === "number" && Number.isFinite(wordStart)) {
+    return currentTime >= wordStart ? 1 : 0;
+  }
+
+  if (wordCount <= 0) {
+    return clampRevealProgress(lineProgress);
+  }
+
+  const wordInterval = 1 / wordCount;
+  return clampRevealProgress((lineProgress - wordIndex * wordInterval) / wordInterval);
+};
+
+const renderLyricText = (
+  tokens: readonly LyricTextToken[],
+  line: SyncedLyricLine,
+  isActive: boolean,
+  lineProgress: number,
+  currentTime: number,
+  reducedMotion: boolean,
+) => {
+  if (!isActive) {
+    return line.text;
+  }
+
+  const wordCount = tokens.reduce(
+    (count, token) => count + (token.kind === "word" ? 1 : 0),
+    0,
+  );
+  let wordIndex = 0;
+
+  return tokens.map((token, tokenIndex) => {
+    if (token.kind === "whitespace") {
+      return (
+        <span aria-hidden="true" key={`${token.text}-${tokenIndex}`}>
+          {token.text}
+        </span>
+      );
+    }
+
+    const wordProgress = getWordRevealProgress(
+      line,
+      wordIndex,
+      wordCount,
+      lineProgress,
+      currentTime,
+      reducedMotion,
+    );
+    wordIndex += 1;
+
+    return (
+      <span
+        aria-hidden="true"
+        className="apple-synced-lyrics__word"
+        data-word-index={wordIndex - 1}
+        key={`${token.text}-${tokenIndex}`}
+        style={{
+          "--word-progress": wordProgress,
+          filter: `blur(${((1 - wordProgress) * 0.16).toFixed(3)}px)`,
+          opacity: 0.34 + wordProgress * 0.66,
+        } as CSSProperties & { "--word-progress": number }}
+      >
+        {token.text}
+      </span>
+    );
+  });
+};
+
+interface SyncedLyricLineButtonProps {
+  line: SyncedLyricLine;
+  index: number;
+  activeIndex: number;
+  isActive: boolean;
+  progress: number;
+  currentTime: number;
+  reducedMotion: boolean;
+  onSeekTo?: (seconds: number) => void;
+}
+
+const SyncedLyricLineButton = memo(
+  forwardRef<HTMLButtonElement, SyncedLyricLineButtonProps>(
+    (
+      {
+        line,
+        index,
+        activeIndex,
+        isActive,
+        progress,
+        currentTime,
+        reducedMotion,
+        onSeekTo,
+      },
+      ref,
+    ) => {
+      const tokens = useMemo(() => splitLyricText(line.text), [line.text]);
+      const lineStyle: LyricButtonStyle | undefined = isActive
+        ? { "--lyric-progress": `${progress * 100}%` }
+        : undefined;
+      const lineState = isActive
+        ? "is-active"
+        : index < activeIndex
+          ? "is-past"
+          : "is-upcoming";
+
+      return (
+        <button
+          aria-current={isActive ? "true" : undefined}
+          aria-label={line.text}
+          className={`apple-synced-lyrics__line ${lineState}`}
+          data-reveal-progress={isActive ? progress.toFixed(3) : undefined}
+          onClick={() => onSeekTo?.(line.time)}
+          ref={ref}
+          style={lineStyle}
+          type="button"
+        >
+          <span className="apple-synced-lyrics__line-text" aria-hidden="true">
+            {renderLyricText(
+              tokens,
+              line,
+              isActive,
+              progress,
+              currentTime,
+              reducedMotion,
+            )}
+          </span>
+        </button>
+      );
+    },
+  ),
+);
 
 export const SyncedLyrics = ({
   track,
@@ -126,6 +298,11 @@ export const SyncedLyrics = ({
     [currentTime, state.lines],
   );
 
+  const activeLineProgress = useMemo(
+    () => getLyricRevealProgress(state.lines, activeLineIndex, currentTime, reducedMotion),
+    [activeLineIndex, currentTime, reducedMotion, state.lines],
+  );
+
   useEffect(() => {
     if (activeLineIndex < 0 || !activeLineRef.current) {
       return;
@@ -181,16 +358,18 @@ export const SyncedLyrics = ({
           {state.lines.map((line, index) => {
             const isActive = index === activeLineIndex;
             return (
-              <button
-                aria-current={isActive ? "true" : undefined}
-                className={`apple-synced-lyrics__line${isActive ? " is-active" : ""}`}
+              <SyncedLyricLineButton
+                activeIndex={activeLineIndex}
+                currentTime={isActive ? currentTime : 0}
+                index={index}
+                isActive={isActive}
                 key={line.id}
-                onClick={() => onSeekTo?.(line.time)}
+                line={line}
+                onSeekTo={onSeekTo}
+                progress={isActive ? activeLineProgress : 0}
                 ref={isActive ? activeLineRef : undefined}
-                type="button"
-              >
-                {line.text}
-              </button>
+                reducedMotion={reducedMotion}
+              />
             );
           })}
         </div>

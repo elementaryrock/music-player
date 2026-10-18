@@ -40,8 +40,9 @@ npm --prefix music-player-ui run lint
 npm --prefix music-player-ui run build
 ```
 
-The test command runs the deterministic Node smoke tests. Historical Jest-style
-tests remain in the source tree but are not part of the configured test runner.
+The test command runs the deterministic Node smoke and lyric-rendering tests.
+Historical Jest-style tests remain in the source tree but are not part of the
+configured test runner.
 
 ## Deploy
 

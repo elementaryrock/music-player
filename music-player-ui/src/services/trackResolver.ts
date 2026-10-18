@@ -51,6 +51,10 @@ export interface TrackResolverDependencies {
 export interface ResolveTrackStreamOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Bound Tidal independently so its endpoint fallbacks cannot block Jio or previews. */
+  tidalTimeoutMs?: number;
+  /** Bound the optional JioSaavn fallback before a preview is considered. */
+  jioTimeoutMs?: number;
   tidalLimit?: number;
   jioLimit?: number;
   tidalQualities?: Array<"HI_RES_LOSSLESS" | "LOSSLESS" | "HI_RES" | "HIGH">;
@@ -60,6 +64,8 @@ export interface ResolveTrackStreamOptions {
 export type ResolvableTrack = TrackResolutionInput | Track;
 
 const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_TIDAL_TIMEOUT_MS = 2500;
+const DEFAULT_JIO_TIMEOUT_MS = 3500;
 const DEFAULT_TIDAL_LIMIT = 12;
 const DEFAULT_JIO_LIMIT = 20;
 const DEFAULT_TIDAL_QUALITIES: ResolveTrackStreamOptions["tidalQualities"] = [
@@ -126,6 +132,7 @@ export const getTidalIsrc = (track: TidalTrack | Record<string, unknown>): strin
 const getTidalArtist = (track: TidalTrack | Record<string, unknown>): string => {
   const candidate = track as Record<string, unknown>;
   const artist = candidate.artist;
+  if (typeof artist === "string" && artist.trim()) return artist;
   if (artist && typeof artist === "object" && "name" in artist) {
     return toStringValue((artist as { name?: unknown }).name);
   }
@@ -333,11 +340,12 @@ const raceWithAbort = async <T>(
 
 const createResult = (
   url: string,
-  source: "tidal" | "jiosaavn",
+  source: "tidal" | "jiosaavn" | "itunes",
   quality: StreamQuality,
   match: StrictMatch,
   providerId?: string | number,
-  providerMetadata?: ProviderMetadata
+  providerMetadata?: ProviderMetadata,
+  isPreview = false
 ): ResolvedTrackStream => ({
   url,
   audioSrc: url,
@@ -345,8 +353,11 @@ const createResult = (
   quality,
   qualityLabel: getQualityLabel(quality),
   matchConfidence: match.confidence,
-  confidence: Math.min(1, match.confidence * (source === "tidal" ? 1 : 0.86)),
+  confidence: Math.min(1, match.confidence * (
+    source === "tidal" ? 1 : isPreview ? 0.58 : 0.86
+  )),
   matchedBy: match.matchedBy,
+  isPreview,
   providerId,
   providerMetadata,
 });
@@ -361,6 +372,8 @@ const toResolutionInput = (track: ResolvableTrack): TrackResolutionInput => ({
   isrc: track.isrc || track.providerMetadata?.isrc,
   providerMetadata: track.providerMetadata,
   audioCandidates: track.audioCandidates,
+  previewUrl: "previewUrl" in track ? track.previewUrl : undefined,
+  isPreview: "isPreview" in track ? track.isPreview : undefined,
 });
 
 const tryTidal = async (
@@ -370,6 +383,10 @@ const tryTidal = async (
 ): Promise<ResolvedTrackStream | null> => {
   const limit = options.tidalLimit ?? DEFAULT_TIDAL_LIMIT;
   const qualities = options.tidalQualities ?? DEFAULT_TIDAL_QUALITIES;
+  const tidalRequestTimeout = Math.min(
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    options.tidalTimeoutMs ?? DEFAULT_TIDAL_TIMEOUT_MS
+  );
   const seen = new Set<string>();
   const searches: Array<{ query: string; byIsrc: boolean }> = [];
   if (track.isrc) searches.push({ query: track.isrc, byIsrc: true });
@@ -382,11 +399,17 @@ const tryTidal = async (
       response = await raceWithAbort(
         dependencies.searchTidal(search.query, limit, 0),
         options.signal,
-        options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+        tidalRequestTimeout
       );
     } catch {
-      continue;
+      // A failed endpoint is optional. Do not issue a second title search
+      // after a timed-out ISRC request against the same unreachable service.
+      break;
     }
+
+    // searchTidalSongs uses null to signal endpoint failure; an empty item
+    // list is a valid miss and may still benefit from the alternate query.
+    if (response === null) break;
 
     const candidates = Array.isArray(response?.items) ? response.items : [];
     for (const candidate of candidates) {
@@ -428,7 +451,7 @@ const tryTidal = async (
           const data = await raceWithAbort(
             dependencies.getTidalTrackById(tidalId, quality),
             options.signal,
-            options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+            tidalRequestTimeout
           );
           const url = getTidalStreamUrl(data);
           if (url) {
@@ -441,8 +464,9 @@ const tryTidal = async (
               providerMetadata
             );
           }
-        } catch {
+        } catch (error) {
           // Try the next Tidal quality or candidate without exposing provider errors.
+          if (error instanceof Error && error.name === "TimeoutError") break;
         }
       }
     }
@@ -478,6 +502,10 @@ const tryJioSaavn = async (
   dependencies: Required<TrackResolverDependencies>
 ): Promise<ResolvedTrackStream | null> => {
   if (options.signal?.aborted) return null;
+  const jioRequestTimeout = Math.min(
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    options.jioTimeoutMs ?? DEFAULT_JIO_TIMEOUT_MS
+  );
   let response: unknown;
   try {
     response = await raceWithAbort(
@@ -487,7 +515,7 @@ const tryJioSaavn = async (
         options.jioLimit ?? DEFAULT_JIO_LIMIT
       ),
       options.signal,
-      options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+      jioRequestTimeout
     );
   } catch {
     return null;
@@ -530,11 +558,86 @@ const tryJioSaavn = async (
   return null;
 };
 
+const isHttpUrl = (value: unknown): value is string => {
+  if (typeof value !== "string" || !value.trim()) return false;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "https:" || url.protocol === "http:";
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Resolve an iTunes candidate only after strict metadata verification. A
+ * preview is deliberately last: it is a short, lower-quality sample and is
+ * never treated as a Tidal/JioSaavn full stream.
+ */
+const tryITunesPreview = (track: TrackResolutionInput): ResolvedTrackStream | null => {
+  const candidates = [
+    ...(track.audioCandidates ?? []),
+    ...(track.previewUrl && track.isPreview
+      ? [{
+          source: "itunes" as const,
+          url: track.previewUrl,
+          isPreview: true,
+          title: track.title,
+          artist: track.artist,
+          duration: track.duration,
+          isrc: track.isrc,
+          providerId: track.providerMetadata?.providerId,
+          providerMetadata: track.providerMetadata,
+        }]
+      : []),
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate.source !== "itunes" || candidate.isPreview !== true || !isHttpUrl(candidate.url)) {
+      continue;
+    }
+
+    const raw = candidate.providerMetadata?.raw;
+    const record = raw && typeof raw === "object"
+      ? raw as Record<string, unknown>
+      : {};
+    const title = toStringValue(candidate.title ?? record.trackName ?? record.title);
+    const artist = toStringValue(candidate.artist ?? record.artistName ?? record.artist);
+    if (!title || !artist) continue;
+
+    const durationMillis = record.trackTimeMillis;
+    const duration = candidate.duration ?? (durationMillis !== undefined
+      ? (() => {
+          const numeric = typeof durationMillis === "number" ? durationMillis : Number(durationMillis);
+          return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric / 1000) : undefined;
+        })()
+      : getDuration(record.duration));
+    const match = matchTrackMetadata(track, {
+      title,
+      artist,
+      duration,
+      isrc: candidate.isrc ?? candidate.providerMetadata?.isrc ?? normalizeIsrc(record.isrc ?? record.ISRC),
+    });
+    if (!match.matched) continue;
+
+    return createResult(
+      candidate.url,
+      "itunes",
+      "standard",
+      match,
+      candidate.providerId ?? candidate.providerMetadata?.providerId,
+      candidate.providerMetadata,
+      true
+    );
+  }
+  return null;
+};
+
 /**
  * Resolve a selected metadata result to a verified playable stream.
  *
- * Order is intentionally fixed: Tidal by ISRC, Tidal by strict metadata, then
- * JioSaavn by strict metadata.  A loose title-only hit is never returned.
+ * Order is intentionally fixed: Tidal by ISRC, Tidal by strict metadata,
+ * JioSaavn by strict metadata, then an iTunes preview only when its embedded
+ * metadata also matches. A loose title-only hit is never returned.
  */
 export const resolveTrackStream = async (
   input: ResolvableTrack,
@@ -553,7 +656,20 @@ export const resolveTrackStream = async (
   if (tidal) return tidal;
   if (options.signal?.aborted) return null;
 
-  return tryJioSaavn(track, options, dependencies);
+  // Keep the legacy full-stream path direct when no preview candidate exists;
+  // preview-capable metadata needs the same strict Jio attempt before its
+  // lower-quality fallback is considered.
+  if (!(track.audioCandidates ?? []).some((candidate) =>
+    candidate.source === "itunes" && candidate.isPreview === true
+  )) {
+    return tryJioSaavn(track, options, dependencies);
+  }
+
+  const jio = await tryJioSaavn(track, options, dependencies);
+  if (jio) return jio;
+  if (options.signal?.aborted) return null;
+
+  return tryITunesPreview(track);
 };
 
 export const resolveStreamForTrack = resolveTrackStream;

@@ -5,7 +5,12 @@
  */
 
 export type DiscoveryProvider = "tidal" | "itunes" | "jiosaavn";
-export type AudioProvider = "tidal" | "jiosaavn";
+/**
+ * iTunes is included only for its short preview candidate. The resolver marks
+ * those results with `isPreview` so callers never mistake the Apple sample
+ * for a full Tidal/JioSaavn stream.
+ */
+export type AudioProvider = "tidal" | "jiosaavn" | "itunes";
 
 export type StreamQuality = "hi-res" | "lossless" | "high" | "standard";
 
@@ -23,6 +28,13 @@ export interface AudioCandidate {
   source: AudioProvider;
   url: string;
   quality?: StreamQuality;
+  /** True only for a provider's limited preview/sample URL. */
+  isPreview?: boolean;
+  /** Optional identity copied from the metadata result for strict matching. */
+  title?: string;
+  artist?: string;
+  duration?: number;
+  isrc?: string;
   providerId?: string | number;
   matchConfidence?: number;
   providerMetadata?: ProviderMetadata;
@@ -41,6 +53,9 @@ export interface UnifiedTrackMetadata {
   popularity?: number;
   rank?: number;
   isrc?: string;
+  /** iTunes' short sample, when one is available. */
+  previewUrl?: string;
+  isPreview?: boolean;
   metadataProvider: DiscoveryProvider;
   providerMetadata: ProviderMetadata;
   audioCandidates?: AudioCandidate[];
@@ -56,6 +71,8 @@ export interface TrackResolutionInput {
   isrc?: string;
   providerMetadata?: ProviderMetadata;
   audioCandidates?: AudioCandidate[];
+  previewUrl?: string;
+  isPreview?: boolean;
 }
 
 export interface ResolvedTrackStream {
@@ -71,6 +88,8 @@ export interface ResolvedTrackStream {
   /** Confidence in the selected stream including provider quality, in 0..1. */
   confidence: number;
   matchedBy: "isrc" | "title-artist-duration";
+  /** True when `url` is a limited preview rather than a full stream. */
+  isPreview: boolean;
   providerId?: string | number;
   providerMetadata?: ProviderMetadata;
 }

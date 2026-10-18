@@ -59,8 +59,8 @@ The single offline test command is:
 make test
 ```
 
-It runs the deterministic Node smoke tests in
-`music-player-ui/scripts/smoke.test.mjs`; no network access or test service is
+It runs the deterministic Node smoke and lyric-rendering tests in
+`music-player-ui/scripts/*.test.mjs`; no network access or test service is
 needed. The older Jest-style files are retained as historical source tests and
 are not claimed as part of this command.
 
