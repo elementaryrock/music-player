@@ -704,6 +704,12 @@
   text-align: right;
 }
 
+.apple-section-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
 .apple-viral-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1305,6 +1311,12 @@
 
   .apple-section-heading {
     align-items: flex-start;
+  }
+
+  .apple-section-heading-actions {
+    align-items: flex-end;
+    flex-direction: column;
+    gap: 2px;
   }
 
   .apple-section-heading h2 {

@@ -625,7 +625,10 @@ export function BrowseShell({
                   <span className="apple-overline">CURATED FOR YOU</span>
                   <h2 id="viral-heading">{isCuratedSection ? "Top Pop Picks" : "Favourite These Viral Hits"}</h2>
                 </div>
-                <span className="apple-section-note">{isCuratedSection ? "14 songs you already know by heart" : "The songs people are replaying"}</span>
+                <div className="apple-section-heading-actions">
+                  <span className="apple-section-note">{isCuratedSection ? "14 songs you already know by heart" : "The songs people are replaying"}</span>
+                  <button type="button" className="apple-see-all">See All <Icon name="chevron-right" size={15} /></button>
+                </div>
               </div>
               <div className="apple-viral-grid">
                 {mediaItems.length ? mediaItems.map((item, index) => (
@@ -654,7 +657,10 @@ export function BrowseShell({
                   <span className="apple-overline">JUST DROPPED</span>
                   <h2 id="week-heading">{isCuratedSection ? "Made for you" : "New This Week"}</h2>
                 </div>
-                <span className="apple-section-note">{isCuratedSection ? "More color for the queue" : "Fresh albums and singles"}</span>
+                <div className="apple-section-heading-actions">
+                  <span className="apple-section-note">{isCuratedSection ? "More color for the queue" : "Fresh albums and singles"}</span>
+                  <button type="button" className="apple-see-all">See All <Icon name="chevron-right" size={15} /></button>
+                </div>
               </div>
               <div className="apple-album-grid">
                 {albumItems.length ? albumItems.map((item, index) => (
