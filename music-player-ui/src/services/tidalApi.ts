@@ -6,6 +6,12 @@
  */
 
 import {
+  autoFixTidalIssues as autoFixTidalIssuesForDebug,
+  runTidalDiagnostics as runTidalDiagnosticsForDebug,
+  searchTidalSongDirect as searchTidalSongDirectForDebug,
+} from './tidalApiFixed';
+
+import {
   TidalQuality,
   TidalSearchResponse,
   TidalTrack,
@@ -35,10 +41,10 @@ export {
   autoFixTidalIssues,
 } from './tidalApiFixed';
 
-// Keep diagnostic utilities lazy. Importing the player should not load a test
-// module that probes dead public endpoints or prints a wall of console output.
-// The browser console helpers below still load the utilities when explicitly
-// called.
+// Keep the separate HiFi diagnostic module lazy. Importing the player should
+// not load a test module that probes dead public endpoints or prints a wall of
+// console output. The fixed provider functions below are fail-closed and do
+// not perform network work until explicitly called.
 export const testHiFiTidalAPI = () =>
   import("./tidalHiFiTest").then(({ testHiFiTidalAPI: run }) => run());
 export const quickHiFiHealthCheck = () =>
@@ -59,9 +65,7 @@ export const testTidalSong = async (query: string = "That's So True") => {
   console.log(`🧪 Testing enhanced Tidal API: "${query}"`);
 
   try {
-    // Import the function to avoid circular dependency
-    const { searchTidalSongDirect } = await import('./tidalApiFixed');
-    const track = await searchTidalSongDirect(query, "LOSSLESS");
+    const track = await searchTidalSongDirectForDebug(query, "LOSSLESS");
 
     if (track) {
       console.log("✅ Success! Enhanced API working:", track);
@@ -83,9 +87,8 @@ if (typeof window !== 'undefined') {
   (window as any).quickHiFiCheck = quickHiFiHealthCheck;
   (window as any).compareHiFiVsLegacy = compareHiFiVsLegacy;
 
-  // Import and expose diagnostic functions
-  import('./tidalApiFixed').then(({ runTidalDiagnostics, autoFixTidalIssues }) => {
-    (window as any).runTidalDiagnostics = runTidalDiagnostics;
-    (window as any).autoFixTidal = autoFixTidalIssues;
-  });
+  // Expose diagnostic functions only when the browser console asks for them.
+  // The functions themselves remain fail-closed and do not probe on import.
+  (window as any).runTidalDiagnostics = runTidalDiagnosticsForDebug;
+  (window as any).autoFixTidal = autoFixTidalIssuesForDebug;
 }

@@ -6,7 +6,6 @@
  */
 
 import { searchSongs as searchJioSaavn } from './api';
-import { searchTidalSongs } from './tidalApi';
 import { getCanonicalQueryHint, searchITunesSongs } from './itunesApi';
 import type {
   AudioCandidate,
@@ -540,7 +539,9 @@ export class SearchEngine {
       // provider dependency. Tidal is optional, so one bounded attempt is
       // preferable to repeating an unreachable endpoint's own fallbacks.
       const response = await this.withTimeout(
-        searchTidalSongs(query, maxResults, 0),
+        import('./tidalApi').then(({ searchTidalSongs }) =>
+          searchTidalSongs(query, maxResults, 0),
+        ),
         this.config.providerTimeoutMs ?? DEFAULT_PROVIDER_TIMEOUT_MS
       );
       if (response === null) {

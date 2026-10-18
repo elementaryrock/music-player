@@ -39,7 +39,7 @@ test("the app keeps discovery and stream resolution separate", async () => {
   assert.match(searchEngine, /if \(response === null\)\s*\{/);
   assert.match(tidal, /const endpointUrls = readConfiguredEndpointUrls\(\)/);
   assert.doesNotMatch(tidal, /const DEFAULT_TIDAL_ENDPOINT/);
-  assert.match(tidalFacade, /Keep diagnostic utilities lazy/);
+  assert.match(tidalFacade, /Keep the separate HiFi diagnostic module lazy/);
   assert.doesNotMatch(tidalFacade, /Enhanced Tidal API with HiFi endpoint loaded/);
   assert.match(app, /sources: \["jiosaavn"\]/);
   assert.match(app, /if \(results\.length === 0\)/);
