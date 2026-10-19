@@ -99,16 +99,17 @@ export async function testCompleteWorkflow(songQuery: string = 'Blinding Lights'
     console.log('2️⃣ Getting streaming URL...');
     const trackData = await getTidalTrackById(firstResult.id, 'LOSSLESS');
     
-    if (!trackData?.OriginalTrackUrl) {
+    let streamUrl = trackData?.OriginalTrackUrl;
+    if (!streamUrl) {
       // Try with HIGH quality as fallback
       console.log('⚠️ LOSSLESS failed, trying HIGH quality...');
       const trackDataHigh = await getTidalTrackById(firstResult.id, 'HIGH');
-      
+
       if (!trackDataHigh?.OriginalTrackUrl) {
         return { success: false, error: 'No streaming URL available' };
       }
-      
-      trackData.OriginalTrackUrl = trackDataHigh.OriginalTrackUrl;
+
+      streamUrl = trackDataHigh.OriginalTrackUrl;
     }
     
     console.log('✅ Streaming URL obtained');
@@ -119,7 +120,7 @@ export async function testCompleteWorkflow(songQuery: string = 'Blinding Lights'
       id: firstResult.id,
       title: firstResult.title,
       artist: firstResult.artist?.name || firstResult.artists?.[0]?.name || 'Unknown Artist',
-      audioSrc: trackData.OriginalTrackUrl,
+      audioSrc: streamUrl,
       albumArtUrl: firstResult.album?.cover ? 
         `https://resources.tidal.com/images/${firstResult.album.cover.replace(/-/g, '/')}/640x640.jpg` : 
         undefined,

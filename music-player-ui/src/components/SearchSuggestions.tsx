@@ -142,7 +142,9 @@ const SearchSuggestions: React.FC<SearchSuggestionsProps> = ({
             {recentHistory.map((item, index) => (
               <div
                 key={`history-${index}`}
-                ref={el => itemRefs.current[index] = el}
+                ref={(el) => {
+                  itemRefs.current[index] = el;
+                }}
                 className={`suggestion-item history-item ${
                   selectedIndex === index ? 'selected' : ''
                 }`}
@@ -197,7 +199,9 @@ const SearchSuggestions: React.FC<SearchSuggestionsProps> = ({
               return (
                 <div
                   key={`suggestion-${index}`}
-                  ref={el => itemRefs.current[globalIndex] = el}
+                  ref={(el) => {
+                    itemRefs.current[globalIndex] = el;
+                  }}
                   className={`suggestion-item ${
                     selectedIndex === globalIndex ? 'selected' : ''
                   }`}
