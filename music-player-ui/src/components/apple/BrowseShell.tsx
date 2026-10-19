@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import type { Track } from "../../types/api.types";
 import type { SearchResult } from "../../services/searchEngine";
 import "./BrowseShell.css";
@@ -16,6 +16,16 @@ export interface BrowseShellProps {
   duration: number;
   isLiked: boolean;
   showLyrics: boolean;
+  isResolving: boolean;
+  importSummary?: {
+    playlistName: string;
+    source: string;
+    importedCount: number;
+    skippedCount: number;
+    warnings: string[];
+    error?: string;
+  } | null;
+  importedPlaylistNames?: string[];
   onSearchQueryChange: (query: string) => void;
   onSearch: (query: string) => void;
   onSelectResult: (result: SearchResult) => void;
@@ -27,6 +37,8 @@ export interface BrowseShellProps {
   onToggleLyrics: () => void;
   onOpenImmersive: () => void;
   onToggleLike: () => void;
+  onShuffleSuggestions: () => void;
+  onImportPlaylist?: (input: string, fileName?: string) => void;
   onOpenQueue?: () => void;
   onNavigate?: (section: BrowseSection) => void;
   onVolumeChange?: (volume: number) => void;
@@ -45,7 +57,9 @@ const THEME_STORAGE_KEY = "glass-player-theme";
  * that a recommendation already has a playable URL. Every click still enters
  * the same strict provider-resolution path as a normal search result.
  */
-const POPULAR_RECOMMENDATIONS: SearchResult[] = [
+// Shared with the app-level autoplay picker; the list remains part of this curated browse surface.
+// eslint-disable-next-line react-refresh/only-export-components
+export const POPULAR_RECOMMENDATIONS: SearchResult[] = [
   { id: "recommendation-blinding-lights", title: "Blinding Lights", artist: "The Weeknd", primaryArtist: "The Weeknd", album: "After Hours", artworkUrl: "https://is1-ssl.mzstatic.com/image/thumb/Music125/v4/6f/bc/e6/6fbce6c4-c38c-72d8-4fd0-66cfff32f679/20UMGIM12176.rgb.jpg/1000x1000.jpg", duration: 200, source: "itunes", metadataSource: "itunes", rank: 0, popularity: 99, confidence: 1 },
   { id: "recommendation-as-it-was", title: "As It Was", artist: "Harry Styles", primaryArtist: "Harry Styles", album: "Harry's House", artworkUrl: "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/2a/19/fb/2a19fb85-2f70-9e44-f2a9-82abe679b88e/886449990061.jpg/1000x1000.jpg", duration: 167, source: "itunes", metadataSource: "itunes", rank: 1, popularity: 97, confidence: 1 },
   { id: "recommendation-flowers", title: "Flowers", artist: "Miley Cyrus", primaryArtist: "Miley Cyrus", album: "Endless Summer Vacation", artworkUrl: "https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/8c/67/ff/8c67ff91-31c3-3fef-1884-ce3ec89f3af4/196589946874.jpg/1000x1000.jpg", duration: 201, source: "itunes", metadataSource: "itunes", rank: 2, popularity: 96, confidence: 1 },
@@ -202,6 +216,7 @@ type IconName =
   | "next"
   | "lyrics"
   | "queue"
+  | "shuffle"
   | "volume"
   | "volume-low"
   | "sun"
@@ -211,6 +226,7 @@ type IconName =
   | "sidebar-collapse"
   | "sidebar-expand"
   | "close"
+  | "import"
   | "plus"
   | "more";
 
@@ -272,6 +288,9 @@ function Icon({ name, size = 18 }: IconProps) {
     case "queue":
       content = <><path d="M4 6h10M4 11h10M4 16h6" /><path d="m17 14 4 2.5-4 2.5v-5Z" /></>;
       break;
+    case "shuffle":
+      content = <><path d="M3 7h3.5c1.6 0 2.4.7 3.3 2l4.4 6c.8 1.1 1.6 2 3.3 2H21" /><path d="m18 12 3 3-3 3" /><path d="M3 17h3.5c1.6 0 2.4-.7 3.3-2l1-1.4" /><path d="m15 7 1.2-1.6c.8-1.1 1.6-1.4 3.3-1.4H21" /><path d="m18 2 3 3-3 3" /></>;
+      break;
     case "volume":
       content = <><path d="M4 10v4h3l4 3V7l-4 3H4Z" /><path d="M15 9.5a3.5 3.5 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10" /></>;
       break;
@@ -298,6 +317,9 @@ function Icon({ name, size = 18 }: IconProps) {
       break;
     case "close":
       content = <path d="m6 6 12 12M18 6 6 18" />;
+      break;
+    case "import":
+      content = <><path d="M12 3v11" /><path d="m8 10 4 4 4-4" /><path d="M5 19h14" /></>;
       break;
     case "plus":
       content = <><path d="M12 5v14M5 12h14" /></>;
@@ -376,6 +398,9 @@ export function BrowseShell({
   duration,
   isLiked,
   showLyrics,
+  isResolving,
+  importSummary,
+  importedPlaylistNames = [],
   onSearchQueryChange,
   onSearch,
   onSelectResult,
@@ -387,6 +412,8 @@ export function BrowseShell({
   onToggleLyrics,
   onOpenImmersive,
   onToggleLike,
+  onShuffleSuggestions,
+  onImportPlaylist,
   onOpenQueue,
   onNavigate,
   onVolumeChange,
@@ -396,6 +423,10 @@ export function BrowseShell({
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isCollectionExpanded, setIsCollectionExpanded] = useState(false);
   const [isDiscoveryVisible, setIsDiscoveryVisible] = useState(true);
+  const [isImportOpen, setIsImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [importFileName, setImportFileName] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window === "undefined") return "light";
     try {
@@ -408,6 +439,7 @@ export function BrowseShell({
   const [localVolume, setLocalVolume] = useState(volume ?? 0.72);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (volume !== undefined) setLocalVolume(volume);
@@ -440,6 +472,35 @@ export function BrowseShell({
   const dismissDiscovery = () => {
     setIsDiscoveryVisible(false);
     sidebarRef.current?.querySelector<HTMLButtonElement>(".apple-primary-nav [aria-current='page']")?.focus();
+  };
+
+  const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setImportText(await file.text());
+      setImportFileName(file.name);
+      setImportError(null);
+    } catch {
+      setImportError("We couldn't read that file. Try pasting the exported playlist text instead.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleImportSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!importText.trim()) {
+      setImportError("Choose a playlist file or paste playlist JSON, CSV, or M3U text first.");
+      return;
+    }
+
+    onImportPlaylist?.(importText, importFileName || undefined);
+    setIsImportOpen(false);
+    setImportText("");
+    setImportFileName("");
+    setImportError(null);
   };
 
   const isCuratedSection = !searchQuery.trim() && (activeSection === "Home" || activeSection === "New");
@@ -561,14 +622,29 @@ export function BrowseShell({
               <section className="apple-playlist-section" aria-labelledby="apple-playlists-heading">
                 <div className="apple-sidebar-label-row">
                   <h2 className="apple-sidebar-label" id="apple-playlists-heading">All playlists</h2>
-                  <button type="button" className="apple-sidebar-icon-button" aria-label="Create playlist" title="Create playlist">
-                    <Icon name="plus" size={14} />
-                  </button>
+                  <div className="apple-sidebar-label-actions">
+                    <button type="button" className="apple-sidebar-icon-button" aria-label="Import playlist" title="Import playlist" onClick={() => setIsImportOpen(true)}>
+                      <Icon name="import" size={14} />
+                    </button>
+                    <button type="button" className="apple-sidebar-icon-button" aria-label="Create playlist" title="Create playlist">
+                      <Icon name="plus" size={14} />
+                    </button>
+                  </div>
                 </div>
                 <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Sunday Morning</span></button>
                 <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Focus Flow</span></button>
                 <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Favorites Mix</span></button>
                 <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Late Night</span></button>
+                {importedPlaylistNames.map((name) => (
+                  <button key={name} type="button" className="apple-sidebar-link apple-sidebar-link--imported" title={`Open imported playlist ${name}`} onClick={() => onOpenQueue?.()}>
+                    <Icon name="playlist" size={16} /><span>{name}</span>
+                  </button>
+                ))}
+                {importSummary && (
+                  <p className={`apple-import-summary ${importSummary.error ? "is-error" : ""}`} role="status">
+                    {importSummary.error || `Imported ${importSummary.importedCount} track${importSummary.importedCount === 1 ? "" : "s"} from ${importSummary.playlistName}.`}
+                  </p>
+                )}
               </section>
             )}
 
@@ -639,6 +715,37 @@ export function BrowseShell({
               </form>
             </div>
           </header>
+
+          {isImportOpen && (
+            <section className="apple-import-panel" aria-labelledby="apple-import-heading">
+              <div className="apple-import-panel-heading">
+                <div>
+                  <span className="apple-overline">LOCAL IMPORT</span>
+                  <h2 id="apple-import-heading">Bring in a playlist</h2>
+                  <p>Use a Spotify, YouTube Music, Apple Music, iTunes, CSV, JSON, or M3U export. Tracks are matched safely when you play them.</p>
+                </div>
+                <button type="button" className="apple-icon-button" aria-label="Close playlist import" onClick={() => setIsImportOpen(false)}><Icon name="close" size={18} /></button>
+              </div>
+              <form className="apple-import-form" onSubmit={handleImportSubmit}>
+                <textarea
+                  value={importText}
+                  onChange={(event) => setImportText(event.target.value)}
+                  placeholder={'Paste playlist JSON, CSV, or M3U text here…'}
+                  aria-label="Playlist export text"
+                  rows={5}
+                />
+                <div className="apple-import-actions">
+                  <input ref={importFileInputRef} type="file" accept=".json,.csv,.m3u,.m3u8,text/csv,application/json,audio/x-mpegurl" onChange={handleImportFile} hidden />
+                  <button type="button" className="apple-import-secondary" onClick={() => importFileInputRef.current?.click()}>Choose export file</button>
+                  {importFileName && <span className="apple-import-file-name" title={importFileName}>{importFileName}</span>}
+                  <span className="apple-import-actions-spacer" />
+                  <button type="button" className="apple-import-secondary" onClick={() => setIsImportOpen(false)}>Cancel</button>
+                  <button type="submit" className="apple-import-submit">Import playlist</button>
+                </div>
+                {importError && <p className="apple-import-error" role="alert">{importError}</p>}
+              </form>
+            </section>
+          )}
 
           {searchQuery.trim() && (
             <section className="apple-search-panel" aria-live="polite" aria-label="Search results">
@@ -782,6 +889,18 @@ export function BrowseShell({
           </div>
 
           <div className="apple-player-actions">
+            <button
+              type="button"
+              className="apple-suggestion-shuffle"
+              aria-label="Shuffle suggestions"
+              aria-busy={isResolving}
+              title="Shuffle suggestions"
+              disabled={!currentTrack}
+              onClick={onShuffleSuggestions}
+            >
+              <Icon name="shuffle" size={17} />
+              <span>Shuffle suggestions</span>
+            </button>
             <button type="button" className={`apple-icon-button ${showLyrics ? "is-active" : ""}`} aria-label={showLyrics ? "Hide lyrics" : "Show lyrics"} aria-pressed={showLyrics} onClick={onToggleLyrics}><Icon name="lyrics" size={18} /></button>
             <button type="button" className="apple-icon-button" aria-label="Open queue" onClick={() => onOpenQueue?.()}><Icon name="queue" size={18} /></button>
             <div className="apple-volume-control">

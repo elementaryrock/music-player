@@ -146,6 +146,23 @@ test("the browse home ships curated pop recommendations and a persistent theme s
   assert.match(browseStyles, /\.apple-viral-row--recommendation/);
 });
 
+test("autoplay suggestions and backend-free playlist imports are wired into the player", async () => {
+  const app = await readSource("src/App.tsx");
+  const browseShell = await readSource("src/components/apple/BrowseShell.tsx");
+  const importer = await readSource("src/services/playlistImport.ts");
+
+  assert.match(app, /AUTOPLAY_SUGGESTIONS_STORAGE_KEY/);
+  assert.match(app, /handleAudioEnded/);
+  assert.match(app, /handleSuggestionPlayback/);
+  assert.match(app, /parsePlaylistImport/);
+  assert.match(app, /importedPlaylistNames/);
+  assert.match(browseShell, /Shuffle suggestions/);
+  assert.match(browseShell, /onImportPlaylist/);
+  assert.match(browseShell, /Bring in a playlist/);
+  assert.match(importer, /export const parsePlaylistImport/);
+  assert.match(importer, /createImportedPlaylistDedupeKey/);
+});
+
 test("the production build has a pinned, reproducible dependency manifest", async () => {
   const packageJson = JSON.parse(await readSource("package.json"));
   const lockfile = await readSource("package-lock.json");
@@ -159,7 +176,7 @@ test("the production build has a pinned, reproducible dependency manifest", asyn
   assert.equal(packageJson.scripts.preview, "node node_modules/vite/bin/vite.js preview");
   assert.equal(
     packageJson.scripts.test,
-    "node --test scripts/smoke.test.mjs scripts/lyrics.test.mjs scripts/jiosaavn.test.mjs",
+    "node --test scripts/smoke.test.mjs scripts/lyrics.test.mjs scripts/jiosaavn.test.mjs scripts/playlist-import.test.mjs",
   );
   assert.match(lockfile, /\"lockfileVersion\"\s*:\s*\d+/);
 });

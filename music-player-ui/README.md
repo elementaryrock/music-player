@@ -20,6 +20,13 @@ endpoints at runtime; the app does not make provider requests during module
 import. Tidal is disabled by default because the historical public endpoint is
 not browser-safe; see `.env.example` for an optional controlled proxy.
 
+The player also has a local **Import playlist** flow for pasted or exported
+Spotify, YouTube Music, Apple Music/iTunes, CSV, JSON, and M3U metadata. Imports
+are kept in browser storage and are resolved safely when a track is played; this
+does not sign in to or sync a private provider library. Full provider-library
+sync needs the provider's OAuth/API integration and a backend for token and
+playlist persistence.
+
 ## Setup
 
 From the repository root:

@@ -9,10 +9,11 @@ import {
 } from "react";
 import "./App.css";
 import "./background.css";
-import BrowseShell from "./components/apple/BrowseShell";
+import BrowseShell, { POPULAR_RECOMMENDATIONS } from "./components/apple/BrowseShell";
 import { ImmersivePlayer } from "./components/apple/ImmersivePlayer";
 import { LyricsDrawer } from "./components/apple/LyricsDrawer";
-import { searchGlobalTracks, type SearchResult } from "./services/metadataDiscovery";
+import { normalizeSearchText, searchGlobalTracks, type SearchResult } from "./services/metadataDiscovery";
+import { parsePlaylistImport, type ImportedPlaylistEntry } from "./services/playlistImport";
 import { resolveTrackStream } from "./services/resolveTrackStream";
 import type { Track } from "./types/api.types";
 
@@ -45,9 +46,131 @@ type AppTrack = Track & {
   isPreview?: boolean;
   playbackKind?: "full" | "preview";
   previewUrl?: string;
+  importedMetadata?: boolean;
+  importedSource?: string;
+  importedPlaylistName?: string;
 };
 
 const PREVIEW_FALLBACK_DURATION_SECONDS = 30;
+const AUTOPLAY_SUGGESTIONS_STORAGE_KEY = "glass-player-autoplay-suggestions:v1";
+const IMPORTED_PLAYLIST_STORAGE_KEY = "glass-player-imported-playlist:v1";
+
+const readAutoplaySuggestionsPreference = (): boolean => {
+  if (typeof window === "undefined") return true;
+
+  try {
+    const storedValue = window.localStorage.getItem(AUTOPLAY_SUGGESTIONS_STORAGE_KEY);
+    if (storedValue === "true") return true;
+    if (storedValue === "false") return false;
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
+  }
+
+  return true;
+};
+
+const normalizedTrackMetadata = (track: Pick<Track, "title" | "artist">) => ({
+  title: normalizeSearchText(track.title),
+  artist: normalizeSearchText(track.artist),
+});
+
+const sharesTrackMetadata = (
+  left: Pick<Track, "title" | "artist">,
+  right: Pick<Track, "title" | "artist">,
+): boolean => {
+  const leftMetadata = normalizedTrackMetadata(left);
+  const rightMetadata = normalizedTrackMetadata(right);
+
+  return Boolean(
+    (leftMetadata.title && leftMetadata.title === rightMetadata.title) ||
+    (leftMetadata.artist && leftMetadata.artist === rightMetadata.artist),
+  );
+};
+
+const trackMetadataKey = (track: Pick<Track, "title" | "artist">): string => {
+  const metadata = normalizedTrackMetadata(track);
+  return `${metadata.title}\u0000${metadata.artist}`;
+};
+
+const isImportedMetadataTrack = (track: Track | null): track is AppTrack =>
+  Boolean(track && (track as AppTrack).importedMetadata === true);
+
+const createImportedTrack = (entry: ImportedPlaylistEntry, index: number): AppTrack => {
+  const identity = normalizeSearchText(`${entry.title}-${entry.artist}-${entry.album || ""}`)
+    .replace(/\s+/g, "-") || `entry-${index + 1}`;
+
+  return {
+    id: `imported-${entry.source}-${identity}-${entry.sourceIndex ?? index}`,
+    title: entry.title,
+    artist: entry.artist,
+    album: entry.album,
+    duration: entry.duration,
+    isrc: entry.isrc,
+    audioSrc: "",
+    source: undefined,
+    metadataSource: undefined,
+    importedMetadata: true,
+    importedSource: entry.source,
+    importedPlaylistName: entry.playlistName,
+  };
+};
+
+const importedTrackToEntry = (track: AppTrack, index: number): ImportedPlaylistEntry => ({
+  source: (track.importedSource as ImportedPlaylistEntry["source"]) || "unknown",
+  playlistName: track.importedPlaylistName || "Imported Playlist",
+  title: track.title,
+  artist: track.artist,
+  album: track.album,
+  duration: track.duration,
+  isrc: track.isrc,
+  sourceIndex: index,
+});
+
+const readImportedTracks = (): AppTrack[] => {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const stored = window.localStorage.getItem(IMPORTED_PLAYLIST_STORAGE_KEY);
+    if (!stored) return [];
+    const entries = JSON.parse(stored) as ImportedPlaylistEntry[];
+    if (!Array.isArray(entries)) return [];
+    return entries
+      .filter((entry) => entry && typeof entry.title === "string" && typeof entry.artist === "string")
+      .map((entry, index) => createImportedTrack(entry, index));
+  } catch {
+    return [];
+  }
+};
+
+const importedTrackToSearchResult = (track: AppTrack): SearchResult => ({
+  id: String(track.id),
+  title: track.title,
+  artist: track.artist,
+  primaryArtist: track.primaryArtist || track.artist,
+  album: track.album,
+  duration: track.duration,
+  source: "itunes",
+  metadataSource: "itunes",
+  artworkUrl: track.albumArtUrl,
+  imageUrl: track.albumArtUrl,
+  isrc: track.isrc,
+  rank: 0,
+  confidence: 1,
+  originalData: {
+    imported: true,
+    source: track.importedSource,
+    playlistName: track.importedPlaylistName,
+  },
+});
+
+export interface PlaylistImportSummary {
+  playlistName: string;
+  source: string;
+  importedCount: number;
+  skippedCount: number;
+  warnings: string[];
+  error?: string;
+}
 
 const isPreviewTrack = (track: Track | null): boolean => {
   if (!track) return false;
@@ -166,10 +289,13 @@ const toTrack = (result: SearchResult): AppTrack => ({
   isPreview: result.isPreview,
   streamQuality: result.quality,
   streamMatchConfidence: result.streamMatchConfidence,
+  importedMetadata: result.originalData?.imported === true,
+  importedSource: typeof result.originalData?.source === "string" ? result.originalData.source : undefined,
+  importedPlaylistName: typeof result.originalData?.playlistName === "string" ? result.originalData.playlistName : undefined,
 });
 
 function App() {
-  const [playlist, setPlaylist] = useState<Track[]>(() => LOCAL_PLAYLIST);
+  const [playlist, setPlaylist] = useState<Track[]>(() => [...LOCAL_PLAYLIST, ...readImportedTracks()]);
   const [currentTrack, setCurrentTrack] = useState<Track | null>(() => LOCAL_PLAYLIST[0] ?? null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -179,6 +305,8 @@ function App() {
   const [showLyrics, setShowLyrics] = useState(false);
   const [showImmersive, setShowImmersive] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
+  const [autoplaySuggestions, setAutoplaySuggestions] = useState(readAutoplaySuggestionsPreference);
+  const [importSummary, setImportSummary] = useState<PlaylistImportSummary | null>(null);
   const [isResolving, setIsResolving] = useState(false);
   const [appError, setAppError] = useState<string | null>(null);
   const [playbackNotice, setPlaybackNotice] = useState<string | null>(null);
@@ -202,13 +330,43 @@ function App() {
   const playAttemptGenerationRef = useRef<number | null>(null);
   const mediaTransitionRef = useRef(false);
   const activeAudioSourceRef = useRef<string | null>(null);
+  const suggestionCursorRef = useRef(0);
+  const lastSuggestionKeyRef = useRef<string | null>(null);
 
   const currentTrackIndex = useMemo(
     () => (currentTrack ? playlist.findIndex((track) => track.id === currentTrack.id) : -1),
     [currentTrack, playlist],
   );
+  const suggestionCandidates = useMemo(
+    () => POPULAR_RECOMMENDATIONS.filter((suggestion) => {
+      if (currentTrack && sharesTrackMetadata(suggestion, currentTrack)) return false;
+      return !playlist.some((track) => sharesTrackMetadata(suggestion, track));
+    }),
+    [currentTrack, playlist],
+  );
+  const importedPlaylistNames = useMemo(
+    () => [...new Set(
+      playlist
+        .filter(isImportedMetadataTrack)
+        .map((track) => track.importedPlaylistName)
+        .filter((name): name is string => Boolean(name)),
+    )],
+    [playlist],
+  );
   const isLiked = currentTrack ? favoriteIds.has(currentTrack.id) : false;
   const displayError = appError || searchError;
+
+  const pickSuggestion = useCallback(() => {
+    const candidates = suggestionCandidates.filter(
+      (suggestion) => trackMetadataKey(suggestion) !== lastSuggestionKeyRef.current,
+    );
+    if (candidates.length === 0) return undefined;
+
+    const suggestion = candidates[suggestionCursorRef.current % candidates.length];
+    suggestionCursorRef.current += 1;
+    lastSuggestionKeyRef.current = trackMetadataKey(suggestion);
+    return suggestion;
+  }, [suggestionCandidates]);
 
   const invalidatePendingResolution = useCallback(() => {
     resolutionRequestRef.current += 1;
@@ -424,9 +582,51 @@ function App() {
     }
   }, [commitTrack]);
 
+  const handleSuggestionPlayback = useCallback(() => {
+    const suggestion = pickSuggestion();
+    if (!suggestion) {
+      retryRef.current = null;
+      setIsPlaying(false);
+      setPlaybackNotice(null);
+      setAppError("No different suggestions are available right now. Search for another song to keep listening.");
+      return;
+    }
+
+    void handleResultSelect(suggestion);
+  }, [handleResultSelect, pickSuggestion]);
+
   const handleSelectTrack = useCallback((track: Track) => {
+    if (isImportedMetadataTrack(track)) {
+      void handleResultSelect(importedTrackToSearchResult(track));
+      return;
+    }
     commitTrack(track, true);
-  }, [commitTrack]);
+  }, [commitTrack, handleResultSelect]);
+
+  const handleImportPlaylist = useCallback((input: string, fileName?: string) => {
+    const parsed = parsePlaylistImport(input, { fileName });
+    const existingKeys = new Set(playlist.map((track) => trackMetadataKey(track)));
+    const entriesToAdd = parsed.entries.filter((entry) => {
+      const key = trackMetadataKey(entry);
+      if (existingKeys.has(key)) return false;
+      existingKeys.add(key);
+      return true;
+    });
+    const importedTracks = entriesToAdd.map((entry, index) => createImportedTrack(entry, index));
+
+    if (importedTracks.length > 0) {
+      setPlaylist((currentPlaylist) => [...currentPlaylist, ...importedTracks]);
+    }
+
+    setImportSummary({
+      playlistName: parsed.playlistName,
+      source: parsed.source,
+      importedCount: importedTracks.length,
+      skippedCount: parsed.skippedCount + (parsed.entries.length - entriesToAdd.length),
+      warnings: parsed.warnings.slice(0, 3),
+      error: parsed.error,
+    });
+  }, [playlist]);
 
   const handlePlayPause = useCallback(() => {
     if (!currentTrack || isResolving) return;
@@ -436,8 +636,8 @@ function App() {
 
   const handleNext = useCallback(() => {
     const nextTrack = currentTrackIndex >= 0 ? playlist[currentTrackIndex + 1] : undefined;
-    if (nextTrack) commitTrack(nextTrack, true);
-  }, [commitTrack, currentTrackIndex, playlist]);
+    if (nextTrack) handleSelectTrack(nextTrack);
+  }, [currentTrackIndex, handleSelectTrack, playlist]);
 
   const handlePrevious = useCallback(() => {
     if (currentTime > 3) {
@@ -448,8 +648,8 @@ function App() {
     }
 
     const previousTrack = currentTrackIndex > 0 ? playlist[currentTrackIndex - 1] : undefined;
-    if (previousTrack) commitTrack(previousTrack, true);
-  }, [commitTrack, currentTime, currentTrackIndex, playlist]);
+    if (previousTrack) handleSelectTrack(previousTrack);
+  }, [currentTime, currentTrackIndex, handleSelectTrack, playlist]);
 
   const handleSeekTo = useCallback((time: number) => {
     const maxDuration = isPreviewTrack(currentTrack)
@@ -506,12 +706,15 @@ function App() {
   const handleAudioEnded = useCallback(() => {
     const nextTrack = currentTrackIndex >= 0 ? playlist[currentTrackIndex + 1] : undefined;
     if (nextTrack) {
-      commitTrack(nextTrack, true);
+      handleSelectTrack(nextTrack);
+    } else if (autoplaySuggestions) {
+      setCurrentTime(duration);
+      handleSuggestionPlayback();
     } else {
       setIsPlaying(false);
       setCurrentTime(duration);
     }
-  }, [commitTrack, currentTrackIndex, duration, playlist]);
+  }, [autoplaySuggestions, currentTrackIndex, duration, handleSelectTrack, handleSuggestionPlayback, playlist]);
 
   const handleCloseImmersive = useCallback(() => {
     setShowImmersive(false);
@@ -521,6 +724,25 @@ function App() {
     const audio = audioRef.current;
     if (audio) audio.volume = volume;
   }, [volume]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(AUTOPLAY_SUGGESTIONS_STORAGE_KEY, String(autoplaySuggestions));
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }, [autoplaySuggestions]);
+
+  useEffect(() => {
+    try {
+      const importedEntries = playlist
+        .filter(isImportedMetadataTrack)
+        .map((track, index) => importedTrackToEntry(track, index));
+      window.localStorage.setItem(IMPORTED_PLAYLIST_STORAGE_KEY, JSON.stringify(importedEntries));
+    } catch {
+      // Imported metadata is a convenience cache; playback does not depend on it.
+    }
+  }, [playlist]);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -634,6 +856,9 @@ function App() {
         duration={duration}
         isLiked={isLiked}
         showLyrics={showLyrics}
+        isResolving={isResolving}
+        importSummary={importSummary}
+        importedPlaylistNames={importedPlaylistNames}
         onSearchQueryChange={(query) => {
           setSearchQuery(query);
           if (!query.trim()) {
@@ -651,6 +876,8 @@ function App() {
         onToggleLyrics={() => setShowLyrics((visible) => !visible)}
         onOpenImmersive={() => setShowImmersive(true)}
         onToggleLike={() => handleToggleLike()}
+        onShuffleSuggestions={handleSuggestionPlayback}
+        onImportPlaylist={handleImportPlaylist}
         onOpenQueue={() => setShowQueue((visible) => !visible)}
         onVolumeChange={setVolume}
         volume={volume}
@@ -719,14 +946,38 @@ function App() {
             <div><span className="app-overline">UP NEXT</span><h2>Queue</h2></div>
             <button type="button" aria-label="Close queue" onClick={() => setShowQueue(false)}>×</button>
           </div>
+          <div className="app-queue-controls">
+            <label className="app-queue-autoplay">
+              <span className="app-queue-autoplay-copy">
+                <strong>Autoplay suggestions</strong>
+                <small>Keep listening after your queue ends.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={autoplaySuggestions}
+                onChange={(event) => setAutoplaySuggestions(event.target.checked)}
+                aria-label="Autoplay suggestions"
+              />
+            </label>
+            <p className="app-queue-suggestion-note">
+              {suggestionCandidates.length > 0
+                ? `${suggestionCandidates.length} different suggestion${suggestionCandidates.length === 1 ? "" : "s"} ready.`
+                : "No different suggestions match this queue yet."}
+            </p>
+          </div>
           <ol className="app-queue-list">
-            {playlist.map((track) => (
+            {playlist.length > 0 ? playlist.map((track) => (
               <li key={track.id} className={track.id === currentTrack?.id ? "is-current" : ""}>
                 <button type="button" onClick={() => { handleSelectTrack(track); setShowQueue(false); }}>
                   <span>{track.title}</span><small>{track.artist}</small>
                 </button>
               </li>
-            ))}
+            )) : (
+              <li className="app-queue-empty">
+                <span>Your queue is empty.</span>
+                <small>Choose a song to start building it.</small>
+              </li>
+            )}
           </ol>
         </aside>
       )}
