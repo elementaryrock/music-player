@@ -92,7 +92,7 @@ test("the app waits for media readiness and owns immersive scroll cleanup", asyn
   assert.match(app, /body\.style\.overflow = previousBodyOverflow/);
   assert.doesNotMatch(immersive, /documentElement\.style\.overflow/);
   assert.match(app, /onClose=\{handleCloseImmersive\}/);
-  assert.match(immersive, /className="apple-immersive-player__icon-button-label">Back/);
+  assert.match(immersive, /className="apple-immersive-back-label">Back/);
   assert.match(immersiveStyles, /height:\s*100dvh/);
   assert.match(immersiveStyles, /\.apple-immersive-player__content[\s\S]*?overflow:\s*hidden/);
   assert.match(immersiveStyles, /\.apple-immersive-player__lyrics[\s\S]*?overflow:\s*hidden/);
@@ -104,8 +104,23 @@ test("the app waits for media readiness and owns immersive scroll cleanup", asyn
   assert.match(browseStyles, /background:\s*var\(--apple-accent\)/);
 });
 
-test("the browse home ships curated pop recommendations and a persistent theme switch", async () => {
+test("every shelf's See All button opens a full listing", async () => {
   const browseShell = await readSource("src/components/apple/BrowseShell.tsx");
+  const seeAllPage = await readSource("src/components/apple/SeeAllPage.tsx");
+  const mediaItems = await readSource("src/components/apple/mediaItems.ts");
+
+  assert.match(browseShell, /onClick=\{\(\) => openSeeAll\("songs", viralTitle, viralNote\)\}/);
+  assert.match(browseShell, /onClick=\{\(\) => openSeeAll\("albums", albumsTitle, albumsNote\)\}/);
+  assert.match(browseShell, /<SeeAllPage/);
+  assert.match(browseShell, /allMediaItems/);
+  assert.match(browseShell, /dedupeByAlbum\(allMediaItems\)/);
+  assert.match(seeAllPage, /apple-see-all-page/);
+  assert.match(seeAllPage, /apple-viral-grid/);
+  assert.match(seeAllPage, /apple-album-grid/);
+  assert.match(mediaItems, /export const dedupeByAlbum/);
+});
+
+test("the browse home ships curated pop recommendations and a persistent theme switch", async () => {  const browseShell = await readSource("src/components/apple/BrowseShell.tsx");
   const browseStyles = await readSource("src/components/apple/BrowseShell.css");
   const recommendationStart = browseShell.indexOf("const POPULAR_RECOMMENDATIONS");
   const recommendationEnd = browseShell.indexOf("];", recommendationStart);
@@ -163,6 +178,23 @@ test("autoplay suggestions and backend-free playlist imports are wired into the 
   assert.match(importer, /createImportedPlaylistDedupeKey/);
 });
 
+test("an album click opens a dedicated album page with its full track list", async () => {
+  const browseShell = await readSource("src/components/apple/BrowseShell.tsx");
+  const albumPage = await readSource("src/components/apple/AlbumDetailPage.tsx");
+  const albumLookup = await readSource("src/services/albumLookup.ts");
+
+  assert.match(browseShell, /onClick=\{\(\) => openAlbum\(item\)\}/);
+  assert.match(browseShell, /<AlbumDetailPage/);
+  assert.match(browseShell, /lookupAlbum\(/);
+  assert.match(browseShell, /onSelectResult\(albumTrackToSearchResult\(track\)\)/);
+  assert.match(browseShell, /getLocalAlbumTracks/);
+  assert.match(albumPage, /apple-album-track-list/);
+  assert.match(albumPage, /onSelectTrack\(track\)/);
+  assert.match(albumPage, /Back to browse/);
+  assert.match(albumLookup, /ITUNES_LOOKUP_URL/);
+  assert.match(albumLookup, /entity: "song"/);
+});
+
 test("the production build has a pinned, reproducible dependency manifest", async () => {
   const packageJson = JSON.parse(await readSource("package.json"));
   const lockfile = await readSource("package-lock.json");
@@ -176,7 +208,7 @@ test("the production build has a pinned, reproducible dependency manifest", asyn
   assert.equal(packageJson.scripts.preview, "node node_modules/vite/bin/vite.js preview");
   assert.equal(
     packageJson.scripts.test,
-    "node --test scripts/smoke.test.mjs scripts/lyrics.test.mjs scripts/jiosaavn.test.mjs scripts/playlist-import.test.mjs",
+    "node --test scripts/smoke.test.mjs scripts/lyrics.test.mjs scripts/jiosaavn.test.mjs scripts/playlist-import.test.mjs scripts/album-lookup.test.mjs scripts/media-items.test.mjs",
   );
   assert.match(lockfile, /\"lockfileVersion\"\s*:\s*\d+/);
 });

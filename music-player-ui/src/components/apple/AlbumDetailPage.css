@@ -1,0 +1,300 @@
+.apple-album-page {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  animation: apple-album-enter 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes apple-album-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.apple-album-back {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 7px;
+  padding: 7px 13px 7px 10px;
+  color: var(--apple-muted);
+  background: rgba(255, 255, 255, 0.68);
+  border: 1px solid var(--apple-line);
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.apple-album-back:hover {
+  color: var(--apple-ink);
+  background: rgba(255, 255, 255, 0.94);
+  transform: translateX(-2px);
+}
+
+.apple-album-hero {
+  display: flex;
+  align-items: flex-end;
+  gap: clamp(18px, 3vw, 34px);
+  padding: clamp(18px, 2.4vw, 28px);
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--apple-line);
+  border-radius: 26px;
+  box-shadow: 0 18px 44px rgba(66, 69, 87, 0.08);
+}
+
+.apple-artwork--album-hero {
+  width: clamp(132px, 15vw, 196px);
+  height: clamp(132px, 15vw, 196px);
+  flex: 0 0 auto;
+  border-radius: 24px;
+  box-shadow: 0 18px 38px rgba(52, 55, 88, 0.22);
+}
+
+.apple-artwork--album-hero > span {
+  font-size: clamp(24px, 3vw, 36px);
+}
+
+.apple-album-hero-copy {
+  min-width: 0;
+  padding-bottom: 4px;
+}
+
+.apple-album-hero-copy h1 {
+  margin: 6px 0 0;
+  overflow: hidden;
+  color: var(--apple-ink);
+  font-size: clamp(28px, 4vw, 46px);
+  font-weight: 780;
+  letter-spacing: -0.05em;
+  line-height: 1.02;
+  text-overflow: ellipsis;
+}
+
+.apple-album-hero-copy h1:focus {
+  outline: 0;
+}
+
+.apple-album-hero-artist {
+  margin: 9px 0 0;
+  color: var(--apple-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.apple-album-hero-meta {
+  margin: 5px 0 0;
+  color: var(--apple-muted);
+  font-size: 11px;
+  font-weight: 550;
+}
+
+.apple-album-hero-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.apple-album-play {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 18px 0 14px;
+  color: #fff;
+  background: linear-gradient(145deg, #ff6f79 0%, #ef4f55 38%, #d92a44 78%, #b81f36 100%);
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.02em;
+  box-shadow: 0 10px 24px rgba(239, 79, 85, 0.36), inset 0 1.5px 0 rgba(255, 255, 255, 0.45);
+  transition: transform 180ms ease, box-shadow 200ms ease, filter 180ms ease;
+}
+
+.apple-album-play:hover:not(:disabled) {
+  filter: brightness(1.06);
+  transform: translateY(-1px);
+  box-shadow: 0 14px 30px rgba(239, 79, 85, 0.44), inset 0 1.5px 0 rgba(255, 255, 255, 0.5);
+}
+
+.apple-album-play:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.apple-album-copyright {
+  max-width: 320px;
+  overflow: hidden;
+  color: var(--apple-soft);
+  font-size: 10px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.apple-album-track-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: -12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apple-album-track {
+  display: grid;
+  grid-template-columns: 26px 42px minmax(0, 1fr) auto 28px;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: 12px;
+  min-height: 62px;
+  padding: 7px 10px;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 160ms ease, transform 160ms ease;
+}
+
+.apple-album-track:hover {
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.apple-album-track:active {
+  transform: scale(0.995);
+}
+
+.apple-album-track-list > li.is-current .apple-album-track {
+  background: rgba(255, 240, 241, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(239, 79, 85, 0.16);
+}
+
+.apple-album-track-number {
+  color: #b3b4bb;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.apple-album-track-duration {
+  color: var(--apple-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.apple-album-empty {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--apple-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.apple-album-empty--error {
+  color: #a33d4d;
+}
+
+/* The "See All" listing reuses the browse shelves, so it only needs a header. */
+.apple-see-all-page {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  animation: apple-album-enter 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.apple-see-all-header h1 {
+  margin: 6px 0 0;
+  color: var(--apple-ink);
+  font-size: clamp(28px, 4vw, 46px);
+  font-weight: 780;
+  letter-spacing: -0.05em;
+  line-height: 1.02;
+}
+
+.apple-see-all-header p {
+  margin: 8px 0 0;
+  color: var(--apple-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 820px) {
+  .apple-album-hero {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .apple-album-track {
+    grid-template-columns: 22px 40px minmax(0, 1fr) 28px;
+    gap: 10px;
+  }
+
+  .apple-album-track-duration {
+    display: none;
+  }
+}
+
+@media (max-width: 520px) {
+  .apple-album-hero {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .apple-artwork--album-hero {
+    width: 124px;
+    height: 124px;
+    border-radius: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .apple-album-page,
+  .apple-see-all-page {
+    animation: none;
+  }
+}
+
+/* Dark mode keeps the album page on the same near-black navy surfaces. */
+.apple-browse-shell--dark .apple-album-back,
+.apple-browse-shell--dark .apple-album-hero {
+  background: rgba(16, 21, 43, 0.82);
+  border-color: rgba(201, 209, 245, 0.14);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.24);
+}
+
+.apple-browse-shell--dark .apple-album-back:hover {
+  background: rgba(28, 34, 66, 0.92);
+}
+
+.apple-browse-shell--dark .apple-album-track:hover {
+  background: rgba(126, 136, 192, 0.16);
+}
+
+.apple-browse-shell--dark .apple-album-track-list > li.is-current .apple-album-track {
+  background: rgba(255, 111, 116, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 145, 137, 0.18);
+}
+
+.apple-browse-shell--dark .apple-album-track-number {
+  color: #737a96;
+}
+
+.apple-browse-shell--dark .apple-album-play {
+  color: #180d1b;
+  background: linear-gradient(145deg, #ff8f8f 0%, #ff7a78 42%, #e8575f 100%);
+  box-shadow: 0 10px 24px rgba(255, 122, 120, 0.28), inset 0 1.5px 0 rgba(255, 255, 255, 0.4);
+}

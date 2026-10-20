@@ -124,23 +124,46 @@
   top: 50%;
   display: inline-flex;
   width: auto;
-  min-width: 5.1rem;
-  height: 2.5rem;
+  min-width: 0;
+  height: 2.25rem;
   align-items: center;
-  justify-content: center;
-  gap: 0.35rem;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  gap: 0.45rem;
+  padding: 0 0.8rem 0 0.55rem;
+  border: 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.1);
-  padding: 0 0.78rem;
+  background: transparent;
   transform: translateY(-50%);
-  font-size: 0.78rem;
-  font-weight: 700;
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 0.85rem;
+  font-weight: 550;
   letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: color 180ms ease, background 180ms ease, transform 180ms ease;
+}
+
+.apple-immersive-player__icon-button .apple-immersive-back-chip {
+  display: block;
+  flex: 0 0 auto;
+  color: currentColor;
+  transition: transform 200ms ease;
+}
+
+.apple-immersive-player__icon-button .apple-immersive-back-label {
+  color: currentColor;
+  line-height: 1;
 }
 
 .apple-immersive-player__icon-button:hover,
-.apple-immersive-player__icon-button:focus-visible,
+.apple-immersive-player__icon-button:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.apple-immersive-player__icon-button:hover .apple-immersive-back-chip,
+.apple-immersive-player__icon-button:focus-visible .apple-immersive-back-chip {
+  transform: translateX(-2px);
+}
+
 .apple-immersive-player__round-button:hover,
 .apple-immersive-player__round-button:focus-visible,
 .apple-immersive-player__transport-button:hover:not(:disabled),
@@ -157,7 +180,6 @@
   outline-offset: 3px;
 }
 
-.apple-immersive-player__icon-button:active,
 .apple-immersive-player__round-button:active,
 .apple-immersive-player__transport-button:active:not(:disabled),
 .apple-immersive-player__play-button:active {
@@ -165,7 +187,8 @@
 }
 
 .apple-immersive-player__icon-button:active {
-  transform: translateY(-50%) scale(0.94);
+  transform: translateY(-50%) scale(0.96);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .apple-immersive-player__content {
@@ -516,9 +539,8 @@
   }
 
   .apple-immersive-player__icon-button {
-    min-width: 4.8rem;
-    padding-right: 0.68rem;
-    padding-left: 0.68rem;
+    height: 2.1rem;
+    padding: 0 0.7rem 0 0.45rem;
   }
 }
 

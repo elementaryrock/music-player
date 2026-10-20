@@ -1,0 +1,194 @@
+/* ==========================================================================
+   Sidebar — Apple Music style: frosted glass, red accents, artwork tiles.
+   Imported after BrowseShell.css so it overrides the base sidebar rules.
+   ========================================================================== */
+.apple-sidebar {
+  --sb-ink: #1d1d1f;
+  --sb-muted: #86868b;
+  --sb-hover: rgba(60, 60, 67, 0.08);
+  --sb-active: rgba(250, 36, 60, 0.12);
+  --sb-accent: #fa243c;
+  padding: 14px 10px 12px;
+  color: var(--sb-ink);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(244, 244, 248, 0.7));
+  -webkit-backdrop-filter: blur(40px) saturate(180%);
+  backdrop-filter: blur(40px) saturate(180%);
+  border-right: 1px solid rgba(60, 60, 67, 0.12);
+  box-shadow: 1px 0 24px rgba(0, 0, 0, 0.03);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+}
+
+.apple-browse-shell--dark .apple-sidebar {
+  --sb-ink: #f2f3fa;
+  --sb-muted: #9a9fb8;
+  --sb-hover: rgba(214, 222, 255, 0.07);
+  --sb-active: rgba(255, 82, 102, 0.17);
+  --sb-accent: #ff6b78;
+  color-scheme: dark;
+  background: linear-gradient(180deg, rgba(27, 31, 58, 0.84), rgba(10, 13, 29, 0.88));
+  border-right-color: rgba(190, 200, 245, 0.08);
+  box-shadow: 18px 0 40px rgba(0, 0, 0, 0.28), inset -1px 0 0 rgba(255, 255, 255, 0.02);
+}
+
+.apple-browse-shell--dark .apple-sidebar-discovery {
+  box-shadow: 0 12px 28px rgba(255, 82, 102, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.apple-browse-shell--dark .apple-playlist-link:hover .apple-playlist-art {
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.2);
+}
+
+.apple-sidebar ::selection { color: inherit; background: var(--sb-active); }
+
+/* Header / brand */
+.apple-sidebar-header { padding: 2px 6px 18px; }
+.apple-brand-lockup { color: var(--sb-ink); gap: 10px; }
+.apple-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: #fff;
+  background: linear-gradient(145deg, #ff5f6d 0%, #fa243c 55%, #d6143a 100%);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(250, 36, 60, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.apple-brand-mark .apple-icon { width: 18px; height: 18px; }
+.apple-brand-name { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; }
+.apple-brand-name small { color: var(--sb-muted); font-size: 15px; font-weight: 500; }
+
+/* Scroll area */
+.apple-sidebar-scroll { scrollbar-color: transparent transparent; }
+.apple-sidebar-scroll:hover { scrollbar-color: rgba(128, 128, 136, 0.5) transparent; }
+.apple-sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(128, 128, 136, 0.45); }
+
+/* Rows */
+.apple-primary-nav { gap: 2px; margin-bottom: 6px; }
+.apple-sidebar .apple-nav-item,
+.apple-sidebar .apple-sidebar-link {
+  position: relative;
+  min-height: 36px;
+  gap: 11px;
+  padding: 0 10px;
+  color: var(--sb-ink);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  transition: color 140ms ease, background 140ms ease, transform 120ms ease;
+}
+.apple-sidebar .apple-nav-item > .apple-icon,
+.apple-sidebar .apple-collection-toggle > .apple-icon {
+  color: var(--sb-accent);
+  stroke-width: 1.8;
+  transition: transform 180ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.apple-sidebar .apple-nav-item:hover,
+.apple-sidebar .apple-sidebar-link:hover {
+  color: var(--sb-ink);
+  background: var(--sb-hover);
+}
+.apple-sidebar .apple-nav-item:hover > .apple-icon { transform: scale(1.12); }
+.apple-sidebar .apple-nav-item:active,
+.apple-sidebar .apple-sidebar-link:active { transform: scale(0.97); }
+.apple-sidebar .apple-nav-item.is-active {
+  color: var(--sb-accent);
+  background: var(--sb-active);
+  font-weight: 650;
+}
+.apple-sidebar .apple-nav-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  background: var(--sb-accent);
+  border-radius: 0 3px 3px 0;
+}
+.apple-sidebar button:focus-visible { outline: 2px solid var(--sb-accent); outline-offset: 1px; }
+
+/* Collection */
+.apple-sidebar-collection { margin-top: 2px; }
+.apple-collection-chevron { color: var(--sb-muted); }
+.apple-collection-links {
+  margin: 2px 0 6px 20px;
+  padding-left: 8px;
+  border-left-color: rgba(128, 128, 136, 0.25);
+}
+.apple-collection-links .apple-sidebar-link { min-height: 32px; font-size: 13px; color: var(--sb-muted); }
+.apple-collection-links .apple-sidebar-link:hover { color: var(--sb-ink); }
+.apple-collection-links .apple-sidebar-link > .apple-icon { color: var(--sb-accent); opacity: 0.85; }
+
+/* Playlists */
+.apple-playlist-section { margin-top: 18px; }
+.apple-sidebar-label-row { padding: 0 4px 0 10px; margin-bottom: 6px; }
+.apple-sidebar-label { color: var(--sb-muted); font-size: 12px; font-weight: 700; letter-spacing: 0; }
+.apple-sidebar .apple-sidebar-icon-button { color: var(--sb-muted); border-radius: 6px; }
+.apple-sidebar .apple-sidebar-icon-button:hover { color: var(--sb-accent); background: var(--sb-hover); }
+
+.apple-playlist-section .apple-playlist-link { min-height: 44px; gap: 12px; padding: 0 8px; font-size: 13px; }
+.apple-sidebar .apple-playlist-link > .apple-playlist-art {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  overflow: visible;
+  color: rgba(255, 255, 255, 0.92);
+  background: linear-gradient(145deg, #ff7a8a, #fa243c);
+  border-radius: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18), inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+.apple-sidebar .apple-playlist-art[data-tone="1"] { background: linear-gradient(145deg, #7ad7ff, #5865f2); }
+.apple-sidebar .apple-playlist-art[data-tone="2"] { background: linear-gradient(145deg, #ffd36a, #ff7a2f); }
+.apple-sidebar .apple-playlist-art[data-tone="3"] { background: linear-gradient(145deg, #6ee7b7, #0ea5a4); }
+.apple-sidebar .apple-playlist-art[data-tone="4"] { background: linear-gradient(145deg, #d9a6ff, #8b3dff); }
+.apple-sidebar .apple-playlist-art[data-tone="5"] { background: linear-gradient(145deg, #f9a8d4, #db2777); }
+.apple-playlist-link:hover .apple-playlist-art { transform: scale(1.06) rotate(-2deg); box-shadow: 0 5px 12px rgba(0, 0, 0, 0.25); }
+.apple-sidebar-link--imported { color: var(--sb-ink); }
+.apple-import-summary { color: var(--sb-muted); }
+
+/* Discovery card */
+.apple-sidebar-discovery {
+  position: relative;
+  overflow: hidden;
+  margin-top: 20px;
+  padding: 16px 14px 14px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 255, 255, 0.28), transparent 9rem),
+    linear-gradient(145deg, #ff6a7a 0%, #fa243c 55%, #c3125f 100%);
+  border: 0;
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(250, 36, 60, 0.28);
+}
+.apple-sidebar-discovery h2 { color: #fff; font-size: 14px; font-weight: 700; letter-spacing: -0.01em; }
+.apple-sidebar-discovery p { color: rgba(255, 255, 255, 0.86); font-size: 12px; margin: 6px 0 12px; }
+.apple-sidebar .apple-discovery-dismiss { color: rgba(255, 255, 255, 0.8); }
+.apple-sidebar .apple-discovery-dismiss:hover { color: #fff; background: rgba(255, 255, 255, 0.2); }
+.apple-sidebar .apple-discovery-explore {
+  color: #fa243c;
+  background: #fff;
+  min-height: 32px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.apple-sidebar .apple-discovery-explore:hover {
+  color: #d6143a;
+  background: #fff;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.18);
+}
+
+/* Collapsed rail */
+.apple-sidebar--collapsed { padding-inline: 10px; }
+.apple-sidebar--collapsed .apple-nav-item,
+.apple-sidebar--collapsed .apple-collection-toggle { justify-content: center; padding-inline: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .apple-sidebar, .apple-sidebar * { transition: none !important; }
+}

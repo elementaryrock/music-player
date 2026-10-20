@@ -1,7 +1,24 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import type { Track } from "../../types/api.types";
-import type { SearchResult } from "../../services/searchEngine";
+import { normalizeSearchText, type SearchResult } from "../../services/searchEngine";
+import { Artwork, type Tone } from "./Artwork";
+import { AlbumDetailPage, type AlbumPageStatus } from "./AlbumDetailPage";
+import { SeeAllPage, type SeeAllVariant } from "./SeeAllPage";
+import {
+  dedupeByAlbum,
+  getAlbumLabel,
+  getAlbumTitle,
+  getArtworkUrl,
+  isSearchResult,
+  type MediaItem,
+} from "./mediaItems";
+import {
+  lookupAlbum,
+  type AlbumDetail,
+  type AlbumTrack,
+} from "../../services/albumLookup";
 import "./BrowseShell.css";
+import "./sidebar-apple.css";
 
 export type BrowseSection = "Search" | "Home" | "New" | "Radio";
 
@@ -46,9 +63,7 @@ export interface BrowseShellProps {
   profileName?: string;
 }
 
-type Tone = "coral" | "lavender" | "mint" | "blue" | "sunset" | "peach";
 type ThemeMode = "light" | "dark";
-type MediaItem = Track | SearchResult;
 
 const THEME_STORAGE_KEY = "glass-player-theme";
 
@@ -140,64 +155,112 @@ const FALLBACK_ALBUMS: PlaceholderMedia[] = [
   { id: "fallback-album-5", title: "Daylight", artist: "Arlo June", tone: "sunset", initials: "D" },
 ];
 
-const getInitials = (value: string, fallback = "♪") => {
-  const initials = value
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join("")
-    .toUpperCase();
-
-  return initials || fallback;
-};
-
 const formatTime = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   const wholeSeconds = Math.floor(seconds);
   return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, "0")}`;
 };
 
-const isSearchResult = (item: MediaItem): item is SearchResult => "confidence" in item;
+/** The album an album card points at, resolved from the clicked item. */
+interface AlbumSelection {
+  title: string;
+  artist: string;
+  artworkUrl?: string;
+  collectionId?: string;
+}
 
-const getArtworkUrl = (item: MediaItem) => {
-  if (isSearchResult(item)) return item.artworkUrl || item.imageUrl;
-  return item.albumArtUrl;
+/** Read a provider collection id out of the raw metadata attached to an item. */
+const readCollectionId = (raw: unknown): string | undefined => {
+  if (!raw || typeof raw !== "object") return undefined;
+  const value = (raw as { collectionId?: unknown }).collectionId;
+  if (value === undefined || value === null) return undefined;
+  const text = String(value).trim();
+  return text || undefined;
 };
 
-const getAlbumLabel = (item: MediaItem) => item.album || "Single";
+const getAlbumSelection = (item: MediaItem): AlbumSelection | null => {
+  // A release without an album name is treated as a single: the catalog
+  // lookup still finds the album that holds the recording.
+  const title = (item.album || item.title || "").trim();
+  if (!title) return null;
 
-interface ArtworkProps {
-  src?: string;
-  title: string;
-  tone?: Tone;
-  className?: string;
-  initials?: string;
-}
+  const collectionId = isSearchResult(item)
+    ? readCollectionId(item.originalData)
+    : readCollectionId(item.providerMetadata?.raw);
 
-function Artwork({ src, title, tone = "lavender", className = "", initials }: ArtworkProps) {
-  const [imageAvailable, setImageAvailable] = useState(Boolean(src));
+  return {
+    title,
+    artist: item.artist,
+    artworkUrl: getArtworkUrl(item),
+    collectionId,
+  };
+};
 
-  useEffect(() => {
-    setImageAvailable(Boolean(src));
-  }, [src]);
+/** The user's own tracks that belong to the requested album. */
+const getLocalAlbumTracks = (
+  selection: AlbumSelection,
+  playlist: Track[]
+): AlbumTrack[] => {
+  const normalizedAlbum = normalizeSearchText(selection.title);
+  if (!normalizedAlbum) return [];
 
-  return (
-    <div className={`apple-artwork apple-artwork--${tone} ${className}`.trim()}>
-      {src && imageAvailable ? (
-        <img
-          src={src}
-          alt={`${title} artwork`}
-          loading="lazy"
-          onError={() => setImageAvailable(false)}
-        />
-      ) : (
-        <span aria-hidden="true">{initials || getInitials(title)}</span>
-      )}
-    </div>
-  );
-}
+  const normalizedArtist = normalizeSearchText(selection.artist);
+
+  return playlist
+    .filter((track) => {
+      if (normalizeSearchText(track.album) !== normalizedAlbum) return false;
+      if (!normalizedArtist) return true;
+      const artist = normalizeSearchText(track.artist);
+      return !artist || artist === normalizedArtist;
+    })
+    .map((track) => ({
+      id: String(track.id),
+      title: track.title,
+      artist: track.artist,
+      album: track.album ?? selection.title,
+      duration: track.duration,
+      artworkUrl: track.albumArtUrl,
+      source: "local" as const,
+    }));
+};
+
+/**
+ * Album tracks keep the provider metadata that the album page resolved, so a
+ * click still travels through the app's strict stream resolution instead of
+ * trusting a URL that came back with the album listing.
+ */
+const albumTrackToSearchResult = (track: AlbumTrack): SearchResult => ({
+  id: track.id,
+  title: track.title,
+  artist: track.artist,
+  primaryArtist: track.artist,
+  album: track.album,
+  duration: track.duration,
+  source: "itunes",
+  metadataSource: "itunes",
+  artworkUrl: track.artworkUrl,
+  imageUrl: track.artworkUrl,
+  previewUrl: track.previewUrl,
+  isPreview: Boolean(track.previewUrl),
+  explicit: track.explicit,
+  isrc: track.isrc,
+  rank: track.trackNumber,
+  confidence: 1,
+  audioCandidates: track.previewUrl
+    ? [
+        {
+          source: "itunes",
+          url: track.previewUrl,
+          quality: "standard",
+          isPreview: true,
+          title: track.title,
+          artist: track.artist,
+          duration: track.duration,
+          isrc: track.isrc,
+        },
+      ]
+    : undefined,
+});
 
 type IconName =
   | "glass"
@@ -247,7 +310,13 @@ function Icon({ name, size = 18 }: IconProps) {
       content = <><path d="M9 18V5l10-2v13" /><circle cx="6" cy="18" r="3" /><circle cx="16" cy="16" r="3" /></>;
       break;
     case "search":
-      content = <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4.5 4.5" /></>;
+      content = (
+        <>
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="m16 16 4.5 4.5" strokeWidth="2.4" />
+          <circle cx="11" cy="11" r="2.6" fill="currentColor" stroke="none" opacity=".18" />
+        </>
+      );
       break;
     case "home":
       content = <><path d="m3 10 9-7 9 7" /><path d="M5.5 9.5V20h13V9.5" /><path d="M9.5 20v-6h5v6" /></>;
@@ -265,37 +334,91 @@ function Icon({ name, size = 18 }: IconProps) {
       content = <><path d="M4 6h11M4 12h11M4 18h7" /><path d="m18 14 3 2-3 2v-4Z" /></>;
       break;
     case "heart":
-      content = <path d="M20.8 8.7c0 5.2-8.8 10-8.8 10s-8.8-4.8-8.8-10A4.7 4.7 0 0 1 12 6.1a4.7 4.7 0 0 1 8.8 2.6Z" />;
+      content = <path d="M12 20.4S3.6 15.6 3.6 9.9c0-2.9 2.3-5.1 5.1-5.1 1.4 0 2.6.6 3.3 1.6.7-1 1.9-1.6 3.3-1.6 2.8 0 5.1 2.2 5.1 5.1 0 5.7-8.4 10.5-8.4 10.5Z" />;
       break;
     case "heart-fill":
-      content = <path fill="currentColor" stroke="none" d="M12 20.2S3.2 15.4 3.2 10.2A4.7 4.7 0 0 1 12 7.6a4.7 4.7 0 0 1 8.8 2.6c0 5.2-8.8 10-8.8 10Z" />;
+      content = (
+        <>
+          <path fill="currentColor" stroke="none" d="M12 20.4S3.6 15.6 3.6 9.9c0-2.9 2.3-5.1 5.1-5.1 1.4 0 2.6.6 3.3 1.6.7-1 1.9-1.6 3.3-1.6 2.8 0 5.1 2.2 5.1 5.1 0 5.7-8.4 10.5-8.4 10.5Z" />
+          <path fill="#fff" fillOpacity=".55" stroke="none" d="M8.6 8.2c-.5.3-.9.9-.9 1.6 0 .4.3.7.6.5.9-.6 1.9-1.1 2.9-1.3.4-.1.5-.6.1-.8-.9-.5-1.9-.5-2.7 0Z" />
+        </>
+      );
       break;
     case "play":
-      content = <path fill="currentColor" stroke="none" d="m8 5 11 7-11 7V5Z" />;
+      content = <path fill="currentColor" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" d="M9.1 5.9c0-.9 1-1.5 1.8-1L19.2 11c.8.5.8 1.6 0 2.1l-8.3 6.1c-.8.5-1.8-.1-1.8-1V5.9Z" />;
       break;
     case "pause":
-      content = <><path fill="currentColor" stroke="none" d="M7 5h3v14H7z" /><path fill="currentColor" stroke="none" d="M14 5h3v14h-3z" /></>;
+      content = (
+        <>
+          <rect x="7" y="5" width="3.6" height="14" rx="1.8" fill="currentColor" stroke="none" />
+          <rect x="13.4" y="5" width="3.6" height="14" rx="1.8" fill="currentColor" stroke="none" />
+        </>
+      );
       break;
     case "previous":
-      content = <><path d="M6 5v14" /><path fill="currentColor" stroke="none" d="m18 6-9 6 9 6V6Z" /></>;
+      content = (
+        <>
+          <rect x="4.4" y="5" width="3" height="14" rx="1.5" fill="currentColor" stroke="none" />
+          <path fill="currentColor" stroke="none" strokeLinejoin="round" d="M19.4 6.7 11.7 11c-.7.4-.7 1.5 0 1.9l7.7 4.4c.8.5 1.9-.1 1.9-1.1V7.8c0-1-1.1-1.6-1.9-1.1Z" />
+        </>
+      );
       break;
     case "next":
-      content = <><path d="M18 5v14" /><path fill="currentColor" stroke="none" d="m6 6 9 6-9 6V6Z" /></>;
+      content = (
+        <>
+          <rect x="16.6" y="5" width="3" height="14" rx="1.5" fill="currentColor" stroke="none" />
+          <path fill="currentColor" stroke="none" strokeLinejoin="round" d="M4.6 6.7l7.7 4.3c.7.4.7 1.5 0 1.9l-7.7 4.4c-.8.5-1.9-.1-1.9-1.1V7.8c0-1 1.1-1.6 1.9-1.1Z" />
+        </>
+      );
       break;
     case "lyrics":
-      content = <><path d="M5 5.5h14v13H5z" /><path d="M8 9h8M8 12h6M8 15h4" /></>;
+      content = (
+        <>
+          <rect x="4.5" y="3.5" width="15" height="17" rx="4.2" />
+          <path d="M8.4 9.2h7.2M8.4 12.2h7.2" />
+          <path d="M8.4 15.2h3.4" />
+          <path fill="currentColor" stroke="none" d="M15.4 14.2c.5 0 .9.7.9 1.2s-.3 1.2-.9 1.2c-.3 0-.6-.2-.8-.4l-.1 1.5-2.5.6.2-1 2.3-.5v-.4c-.3-.2-.5-.6-.5-1 0-.5.4-1.2.9-1.2l.5.8-.5.4.5-.4Z" opacity=".92" />
+        </>
+      );
       break;
     case "queue":
-      content = <><path d="M4 6h10M4 11h10M4 16h6" /><path d="m17 14 4 2.5-4 2.5v-5Z" /></>;
+      content = (
+        <>
+          <path d="M4 6.6h8.5M4 11h8.5M4 15.4h5" />
+          <circle cx="16.6" cy="15.6" r="4.4" fill="currentColor" fillOpacity=".14" />
+          <circle cx="16.6" cy="15.6" r="4.4" />
+          <path fill="currentColor" stroke="none" d="m15.5 13.6 3.2 2-3.2 2v-4Z" />
+        </>
+      );
       break;
     case "shuffle":
-      content = <><path d="M3 7h3.5c1.6 0 2.4.7 3.3 2l4.4 6c.8 1.1 1.6 2 3.3 2H21" /><path d="m18 12 3 3-3 3" /><path d="M3 17h3.5c1.6 0 2.4-.7 3.3-2l1-1.4" /><path d="m15 7 1.2-1.6c.8-1.1 1.6-1.4 3.3-1.4H21" /><path d="m18 2 3 3-3 3" /></>;
+      content = (
+        <>
+          <circle cx="4.1" cy="7" r="1.5" fill="currentColor" stroke="none" />
+          <circle cx="4.1" cy="17" r="1.5" fill="currentColor" stroke="none" />
+          <path d="M6.4 7h2.2c3.9 0 3.3 8.4 7.9 8.4" />
+          <path d="m14.2 13.2 2.4 2.2-2.4 2.2" />
+          <path d="M6.4 17h2.2c1.4 0 2-.7 2.9-2l2-2.9c.9-1.3 1.5-2.1 2.9-2.1h1.7" />
+          <path d="m14.2 6.4 2.4 2.2-2.4 2.3" />
+          <path fill="currentColor" stroke="none" d="M19.6 3.2c.3 0 .6.4.6.8l-.1 1.1 1.1-.1c.4 0 .8.3.8.6s-.4.6-.8.6l-1.1-.1.1 1.1c0 .4-.3.8-.6.8s-.6-.4-.6-.8l.1-1.1-1.1.1c-.4 0-.8-.3-.8-.6s.4-.6.8-.6l1.1.1-.1-1.1c0-.4.2-.8.6-.8Z" opacity=".9" />
+        </>
+      );
       break;
     case "volume":
-      content = <><path d="M4 10v4h3l4 3V7l-4 3H4Z" /><path d="M15 9.5a3.5 3.5 0 0 1 0 5M17.5 7a7 7 0 0 1 0 10" /></>;
+      content = (
+        <>
+          <path fill="currentColor" fillOpacity=".16" strokeWidth="1.9" d="M4.5 9.7c0-.7.6-1.3 1.3-1.3h2.3l4-3.4c.7-.6 1.8-.1 1.8.8v12.4c0 .9-1.1 1.4-1.8.8l-4-3.4H5.8c-.7 0-1.3-.6-1.3-1.3V9.7Z" />
+          <path d="M15.4 9.3a4 4 0 0 1 0 5.4M17.9 6.8a7.4 7.4 0 0 1 0 10.4" />
+        </>
+      );
       break;
     case "volume-low":
-      content = <><path d="M4 10v4h3l4 3V7l-4 3H4Z" /><path d="M15 9.5a3.5 3.5 0 0 1 0 5" /></>;
+      content = (
+        <>
+          <path fill="currentColor" fillOpacity=".16" strokeWidth="1.9" d="M4.5 9.7c0-.7.6-1.3 1.3-1.3h2.3l4-3.4c.7-.6 1.8-.1 1.8.8v12.4c0 .9-1.1 1.4-1.8.8l-4-3.4H5.8c-.7 0-1.3-.6-1.3-1.3V9.7Z" />
+          <path d="M15.4 9.3a4 4 0 0 1 0 5.4" />
+        </>
+      );
       break;
     case "sun":
       content = <><circle cx="12" cy="12" r="3.5" /><path d="M12 2.5v2M12 19.5v2M4.5 4.5l1.4 1.4M18.1 18.1l1.4 1.4M2.5 12h2M19.5 12h2M4.5 19.5l1.4-1.4M18.1 5.9l1.4-1.4" /></>;
@@ -304,7 +427,17 @@ function Icon({ name, size = 18 }: IconProps) {
       content = <path d="M20.3 15.2A8.5 8.5 0 0 1 8.8 3.7 8.5 8.5 0 1 0 20.3 15.2Z" />;
       break;
     case "expand":
-      content = <><path d="M8 4H4v4M16 4h4v4M20 16v4h-4M4 16v4h4" /><path d="m4 4 5 5M20 4l-5 5M20 20l-5-5M4 20l5-5" /></>;
+      content = (
+        <>
+          <path d="M9.2 4.5H6.8a2.6 2.6 0 0 0-2.6 2.6v2.4" />
+          <path d="M14.8 4.5h2.4a2.6 2.6 0 0 1 2.6 2.6v2.4" />
+          <path d="M19.8 14.5v2.4a2.6 2.6 0 0 1-2.6 2.6h-2.4" />
+          <path d="M9.2 19.5H6.8a2.6 2.6 0 0 1-2.6-2.6v-2.4" />
+          <path d="m9.7 14.3 4.6-4.6" />
+          <path d="M10.2 9.2h4.3v4.3" />
+          <path d="M13.8 14.8h-4.3V10.5" opacity=".35" />
+        </>
+      );
       break;
     case "chevron-right":
       content = <path d="m9 5 7 7-7 7" />;
@@ -340,7 +473,7 @@ function Icon({ name, size = 18 }: IconProps) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
+      strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
     >
@@ -437,13 +570,66 @@ export function BrowseShell({
   });
   const [isVolumeOpen, setIsVolumeOpen] = useState(false);
   const [localVolume, setLocalVolume] = useState(volume ?? 0.72);
+  const [selectedAlbum, setSelectedAlbum] = useState<AlbumSelection | null>(null);
+  const [albumDetail, setAlbumDetail] = useState<AlbumDetail | null>(null);
+  const [albumTracks, setAlbumTracks] = useState<AlbumTrack[]>([]);
+  const [albumStatus, setAlbumStatus] = useState<AlbumPageStatus>("loading");
+  const [albumError, setAlbumError] = useState<string | null>(null);
+  const [seeAll, setSeeAll] = useState<{
+    variant: SeeAllVariant;
+    title: string;
+    note?: string;
+  } | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sidebarRef = useRef<HTMLElement>(null);
   const importFileInputRef = useRef<HTMLInputElement>(null);
+  // The album lookup must not restart every time the queue changes, so the
+  // latest queue is read through a ref instead of an effect dependency.
+  const playlistRef = useRef(playlist);
+  // Where the browse surface was scrolled before a detail view opened.
+  const browseScrollRef = useRef(0);
+  // Set when a detail view closes and the browse scroll should come back.
+  const pendingScrollRestoreRef = useRef(false);
+
+  /** A detail view opens at the top and remembers the browse scroll offset. */
+  const rememberBrowseScroll = useCallback(() => {
+    if (typeof window === "undefined") return;
+    browseScrollRef.current = window.scrollY;
+    window.scrollTo({ top: 0, behavior: "auto" });
+  }, []);
+
+  const restoreBrowseScroll = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.scrollTo({ top: browseScrollRef.current, behavior: "auto" });
+  }, []);
+
+  const closeAlbum = useCallback((restoreScroll = false) => {
+    setSelectedAlbum(null);
+    setAlbumDetail(null);
+    setAlbumTracks([]);
+    setAlbumStatus("loading");
+    setAlbumError(null);
+    if (restoreScroll) pendingScrollRestoreRef.current = true;
+  }, []);
+
+  const closeSeeAll = useCallback((restoreScroll = false) => {
+    setSeeAll(null);
+    if (restoreScroll) pendingScrollRestoreRef.current = true;
+  }, []);
+
+  /** Leave whichever detail view is open and return to the browse surface. */
+  const closeDetailViews = () => {
+    closeAlbum();
+    closeSeeAll();
+  };
 
   useEffect(() => {
     if (volume !== undefined) setLocalVolume(volume);
   }, [volume]);
+
+  useEffect(() => {
+    playlistRef.current = playlist;
+  }, [playlist]);
 
   useEffect(() => {
     try {
@@ -453,8 +639,93 @@ export function BrowseShell({
     }
   }, [theme]);
 
+  // Load the album's full track list whenever a different album is opened.
+  // The lookup is provider-only: it never decides playback, it only supplies
+  // the metadata that the app's normal resolution path then verifies.
+  useEffect(() => {
+    if (!selectedAlbum) return undefined;
+
+    const controller = new AbortController();
+    let cancelled = false;
+
+    void lookupAlbum(
+      {
+        title: selectedAlbum.title,
+        artist: selectedAlbum.artist,
+        collectionId: selectedAlbum.collectionId,
+      },
+      { signal: controller.signal },
+    )
+      .then((detail) => {
+        if (cancelled) return;
+
+        if (detail && detail.tracks.length > 0) {
+          setAlbumDetail(detail);
+          setAlbumTracks(detail.tracks);
+          setAlbumStatus("ready");
+          return;
+        }
+
+        // The catalog does not know this release. Fall back to the tracks the
+        // user's own library already holds for the same album.
+        const localTracks = getLocalAlbumTracks(selectedAlbum, playlistRef.current);
+        if (localTracks.length > 0) {
+          setAlbumDetail((current) => ({
+            id: current?.id ?? selectedAlbum.title,
+            title: selectedAlbum.title,
+            artist: selectedAlbum.artist,
+            artworkUrl: current?.artworkUrl ?? selectedAlbum.artworkUrl,
+            tracks: localTracks,
+          }));
+          setAlbumTracks(localTracks);
+          setAlbumStatus("ready");
+          return;
+        }
+
+        setAlbumStatus("error");
+        setAlbumError("We couldn't find a track list for this album.");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAlbumStatus("error");
+        setAlbumError("We couldn't load this album right now.");
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [selectedAlbum]);
+
+  // Restore the browse scroll only once the browse content is back in the
+  // DOM. While the shorter detail page is still mounted the browser clamps
+  // the scroll to that page's range, so the offset would be lost.
+  useEffect(() => {
+    if (selectedAlbum || seeAll) return;
+    if (!pendingScrollRestoreRef.current) return;
+    pendingScrollRestoreRef.current = false;
+    restoreBrowseScroll();
+  });
+
+  // Escape returns to the browse surface, matching the immersive player's
+  // dismiss behaviour.
+  useEffect(() => {
+    if ((!selectedAlbum && !seeAll) || typeof window === "undefined") return undefined;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeAlbum(true);
+      closeSeeAll(true);
+    };
+    window.addEventListener("keydown", handleEscape);
+
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [closeAlbum, closeSeeAll, seeAll, selectedAlbum]);
+
   const selectSection = (section: BrowseSection) => {
     setActiveSection(section);
+    closeDetailViews();
     onNavigate?.(section);
     if (section === "Search") {
       window.setTimeout(() => searchInputRef.current?.focus(), 0);
@@ -467,6 +738,57 @@ export function BrowseShell({
     } else {
       onSelectTrack(item);
     }
+  };
+
+  const openAlbum = (item: MediaItem) => {
+    const selection = getAlbumSelection(item);
+    if (!selection) return;
+
+    closeSeeAll();
+    rememberBrowseScroll();
+    setSelectedAlbum(selection);
+    setAlbumDetail({
+      id: selection.collectionId ? `itunes-collection-${selection.collectionId}` : selection.title,
+      title: selection.title,
+      artist: selection.artist,
+      artworkUrl: selection.artworkUrl,
+      tracks: [],
+    });
+    setAlbumTracks([]);
+    setAlbumStatus("loading");
+    setAlbumError(null);
+  };
+
+  /** Open the full listing behind a shelf's "See All" button. */
+  const openSeeAll = (
+    variant: SeeAllVariant,
+    title: string,
+    note?: string
+  ) => {
+    closeAlbum();
+    rememberBrowseScroll();
+    setSeeAll({ variant, title, note });
+  };
+
+  /** Songs play straight away; albums open the album page. */
+  const handleSeeAllSelect = (item: MediaItem) => {
+    if (seeAll?.variant === "albums") {
+      openAlbum(item);
+      return;
+    }
+    selectMedia(item);
+  };
+
+  const handleAlbumTrackSelect = (track: AlbumTrack) => {
+    if (track.source === "local") {
+      const localTrack = playlist.find((item) => String(item.id) === track.id);
+      if (localTrack) {
+        onSelectTrack(localTrack);
+        return;
+      }
+    }
+
+    onSelectResult(albumTrackToSearchResult(track));
   };
 
   const dismissDiscovery = () => {
@@ -551,8 +873,27 @@ export function BrowseShell({
     ? playlist.slice(0, 5)
     : searchResults.slice(0, 5);
 
+  // The complete collection behind each shelf. "See All" shows all of it.
+  const allMediaItems: MediaItem[] = isCuratedSection
+    ? POPULAR_RECOMMENDATIONS
+    : playlist.length
+    ? playlist
+    : searchResults;
+
+  const allAlbumItems: MediaItem[] = dedupeByAlbum(allMediaItems);
+
+  const viralTitle = isCuratedSection ? "Top Pop Picks" : "Favourite These Viral Hits";
+  const viralNote = isCuratedSection
+    ? "14 songs you already know by heart"
+    : "The songs people are replaying";
+  const albumsTitle = isCuratedSection ? "Made for you" : "New This Week";
+  const albumsNote = isCuratedSection
+    ? "More color for the queue"
+    : "Fresh albums and singles";
+
   const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    closeDetailViews();
     onSearch(searchQuery);
   };
 
@@ -621,7 +962,7 @@ export function BrowseShell({
             {!isSidebarCollapsed && (
               <section className="apple-playlist-section" aria-labelledby="apple-playlists-heading">
                 <div className="apple-sidebar-label-row">
-                  <h2 className="apple-sidebar-label" id="apple-playlists-heading">All playlists</h2>
+                  <h2 className="apple-sidebar-label" id="apple-playlists-heading">Playlists</h2>
                   <div className="apple-sidebar-label-actions">
                     <button type="button" className="apple-sidebar-icon-button" aria-label="Import playlist" title="Import playlist" onClick={() => setIsImportOpen(true)}>
                       <Icon name="import" size={14} />
@@ -631,13 +972,16 @@ export function BrowseShell({
                     </button>
                   </div>
                 </div>
-                <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Sunday Morning</span></button>
-                <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Focus Flow</span></button>
-                <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Favorites Mix</span></button>
-                <button type="button" className="apple-sidebar-link"><Icon name="playlist" size={16} /><span>Late Night</span></button>
-                {importedPlaylistNames.map((name) => (
-                  <button key={name} type="button" className="apple-sidebar-link apple-sidebar-link--imported" title={`Open imported playlist ${name}`} onClick={() => onOpenQueue?.()}>
-                    <Icon name="playlist" size={16} /><span>{name}</span>
+                {["Sunday Morning", "Focus Flow", "Favorites Mix", "Late Night"].map((name, index) => (
+                  <button key={name} type="button" className="apple-sidebar-link apple-playlist-link">
+                    <span className="apple-playlist-art" data-tone={index % 4} aria-hidden="true"><Icon name="playlist" size={13} /></span>
+                    <span>{name}</span>
+                  </button>
+                ))}
+                {importedPlaylistNames.map((name, index) => (
+                  <button key={name} type="button" className="apple-sidebar-link apple-playlist-link apple-sidebar-link--imported" title={`Open imported playlist ${name}`} onClick={() => onOpenQueue?.()}>
+                    <span className="apple-playlist-art" data-tone={(index + 4) % 6} aria-hidden="true"><Icon name="playlist" size={13} /></span>
+                    <span>{name}</span>
                   </button>
                 ))}
                 {importSummary && (
@@ -669,28 +1013,36 @@ export function BrowseShell({
 
         <div className="apple-browse-page">
           <header className="apple-page-header">
-            <div className="apple-page-heading">
+            {selectedAlbum || seeAll ? null : (
+              <div className="apple-page-heading">
                   <span className="apple-overline">
                     {activeSection === "New" ? "DISCOVER" : activeSection === "Search" ? "FIND MUSIC" : "MUSIC FOR YOU"}
                   </span>
                   <h1>{activeSection === "New" ? "New" : activeSection}</h1>
               <p>Find something beautiful to listen to.</p>
-            </div>
+              </div>
+            )}
 
             <div className="apple-header-tools">
               <button
                 type="button"
-                className="apple-theme-toggle"
+                className={`apple-theme-toggle ${theme === "dark" ? "is-dark" : "is-light"}`}
                 aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
                 aria-pressed={theme === "dark"}
                 title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
                 onClick={() => setTheme((currentTheme) => currentTheme === "dark" ? "light" : "dark")}
               >
-                <Icon name={theme === "dark" ? "sun" : "moon"} size={16} />
-                <span>{theme === "dark" ? "Light" : "Dark"}</span>
+                <span className="apple-theme-track" aria-hidden="true">
+                  <span className="apple-theme-thumb">
+                    <Icon name={theme === "dark" ? "sun" : "moon"} size={14} />
+                  </span>
+                </span>
+                <span className="apple-theme-label">{theme === "dark" ? "Light" : "Dark"}</span>
               </button>
               <form className="apple-search-form" onSubmit={handleSearchSubmit} role="search">
-                <Icon name="search" size={18} />
+                <span className="apple-search-icon" aria-hidden="true">
+                  <Icon name="search" size={18} />
+                </span>
                 <input
                   type="search"
                   ref={searchInputRef}
@@ -706,10 +1058,11 @@ export function BrowseShell({
                     aria-label="Clear search"
                     onClick={() => onSearchQueryChange("")}
                   >
-                    ×
+                    <Icon name="close" size={12} />
                   </button>
                 )}
                 <button type="submit" className="apple-search-submit" aria-label="Submit search">
+                  <Icon name="search" size={14} />
                   <span>Search</span>
                 </button>
               </form>
@@ -776,6 +1129,31 @@ export function BrowseShell({
             </section>
           )}
 
+          {selectedAlbum ? (
+            <main className="apple-browse-main">
+              <AlbumDetailPage
+                album={albumDetail}
+                tracks={albumTracks}
+                status={albumStatus}
+                error={albumError}
+                currentTrackId={currentTrack?.id}
+                isPlaying={isPlaying}
+                onBack={() => closeAlbum(true)}
+                onSelectTrack={handleAlbumTrackSelect}
+              />
+            </main>
+          ) : seeAll ? (
+            <main className="apple-browse-main">
+              <SeeAllPage
+                variant={seeAll.variant}
+                title={seeAll.title}
+                note={seeAll.note}
+                items={seeAll.variant === "albums" ? allAlbumItems : allMediaItems}
+                onBack={() => closeSeeAll(true)}
+                onSelectItem={handleSeeAllSelect}
+              />
+            </main>
+          ) : (
           <main className="apple-browse-main">
             <section className="apple-hero-grid" aria-label="Featured music">
               {heroCards.map((hero, index) => (
@@ -805,11 +1183,18 @@ export function BrowseShell({
               <div className="apple-section-heading">
                 <div>
                   <span className="apple-overline">CURATED FOR YOU</span>
-                  <h2 id="viral-heading">{isCuratedSection ? "Top Pop Picks" : "Favourite These Viral Hits"}</h2>
+                  <h2 id="viral-heading">{viralTitle}</h2>
                 </div>
                 <div className="apple-section-heading-actions">
-                  <span className="apple-section-note">{isCuratedSection ? "14 songs you already know by heart" : "The songs people are replaying"}</span>
-                  <button type="button" className="apple-see-all">See All <Icon name="chevron-right" size={15} /></button>
+                  <span className="apple-section-note">{viralNote}</span>
+                  <button
+                    type="button"
+                    className="apple-see-all"
+                    aria-label={`See all ${viralTitle.toLowerCase()}`}
+                    onClick={() => openSeeAll("songs", viralTitle, viralNote)}
+                  >
+                    See All <Icon name="chevron-right" size={15} />
+                  </button>
                 </div>
               </div>
               <div className="apple-viral-grid">
@@ -837,16 +1222,23 @@ export function BrowseShell({
               <div className="apple-section-heading">
                 <div>
                   <span className="apple-overline">JUST DROPPED</span>
-                  <h2 id="week-heading">{isCuratedSection ? "Made for you" : "New This Week"}</h2>
+                  <h2 id="week-heading">{albumsTitle}</h2>
                 </div>
                 <div className="apple-section-heading-actions">
-                  <span className="apple-section-note">{isCuratedSection ? "More color for the queue" : "Fresh albums and singles"}</span>
-                  <button type="button" className="apple-see-all">See All <Icon name="chevron-right" size={15} /></button>
+                  <span className="apple-section-note">{albumsNote}</span>
+                  <button
+                    type="button"
+                    className="apple-see-all"
+                    aria-label={`See all ${albumsTitle.toLowerCase()}`}
+                    onClick={() => openSeeAll("albums", albumsTitle, albumsNote)}
+                  >
+                    See All <Icon name="chevron-right" size={15} />
+                  </button>
                 </div>
               </div>
               <div className="apple-album-grid">
                 {albumItems.length ? albumItems.map((item, index) => (
-                  <button key={`album-${String(item.id)}`} type="button" className="apple-album-card" onClick={() => selectMedia(item)}>
+                  <button key={`album-${String(item.id)}`} type="button" className="apple-album-card" onClick={() => openAlbum(item)}>
                     <Artwork src={getArtworkUrl(item)} title={item.album || item.title} tone={(["coral", "blue", "mint", "lavender", "sunset"] as Tone[])[index % 5]} className="apple-artwork--album" />
                     <span className="apple-album-copy"><strong>{item.album || item.title}</strong><small>{item.artist}</small></span>
                   </button>
@@ -859,6 +1251,7 @@ export function BrowseShell({
               </div>
             </section>
           </main>
+          )}
         </div>
       </div>
 
@@ -883,28 +1276,27 @@ export function BrowseShell({
           </div>
 
           <div className="apple-player-controls">
-            <button type="button" className="apple-icon-button" aria-label="Previous track" onClick={onPrev}><Icon name="previous" size={18} /></button>
-            <button type="button" className="apple-play-toggle" aria-label={isPlaying ? "Pause" : "Play"} aria-pressed={isPlaying} onClick={onPlayPause}><Icon name={isPlaying ? "pause" : "play"} size={17} /></button>
-            <button type="button" className="apple-icon-button" aria-label="Next track" onClick={onNext}><Icon name="next" size={18} /></button>
+            <button type="button" className="apple-icon-button apple-skip-button" aria-label="Previous track" onClick={onPrev}><Icon name="previous" size={19} /></button>
+            <button type="button" className="apple-play-toggle" aria-label={isPlaying ? "Pause" : "Play"} aria-pressed={isPlaying} onClick={onPlayPause}><Icon name={isPlaying ? "pause" : "play"} size={18} /></button>
+            <button type="button" className="apple-icon-button apple-skip-button" aria-label="Next track" onClick={onNext}><Icon name="next" size={19} /></button>
           </div>
 
           <div className="apple-player-actions">
             <button
               type="button"
-              className="apple-suggestion-shuffle"
+              className="apple-icon-button apple-shuffle-button"
               aria-label="Shuffle suggestions"
               aria-busy={isResolving}
               title="Shuffle suggestions"
               disabled={!currentTrack}
               onClick={onShuffleSuggestions}
             >
-              <Icon name="shuffle" size={17} />
-              <span>Shuffle suggestions</span>
+              <Icon name="shuffle" size={19} />
             </button>
-            <button type="button" className={`apple-icon-button ${showLyrics ? "is-active" : ""}`} aria-label={showLyrics ? "Hide lyrics" : "Show lyrics"} aria-pressed={showLyrics} onClick={onToggleLyrics}><Icon name="lyrics" size={18} /></button>
-            <button type="button" className="apple-icon-button" aria-label="Open queue" onClick={() => onOpenQueue?.()}><Icon name="queue" size={18} /></button>
+            <button type="button" className={`apple-icon-button ${showLyrics ? "is-active" : ""}`} aria-label={showLyrics ? "Hide lyrics" : "Show lyrics"} aria-pressed={showLyrics} onClick={onToggleLyrics}><Icon name="lyrics" size={19} /></button>
+            <button type="button" className="apple-icon-button" aria-label="Open queue" onClick={() => onOpenQueue?.()}><Icon name="queue" size={19} /></button>
             <div className="apple-volume-control">
-              <button type="button" className={`apple-icon-button ${isVolumeOpen ? "is-active" : ""}`} aria-label="Adjust volume" aria-expanded={isVolumeOpen} onClick={() => setIsVolumeOpen((open) => !open)}><Icon name={displayVolume === 0 ? "volume-low" : "volume"} size={18} /></button>
+              <button type="button" className={`apple-icon-button ${isVolumeOpen ? "is-active" : ""}`} aria-label="Adjust volume" aria-expanded={isVolumeOpen} onClick={() => setIsVolumeOpen((open) => !open)}><Icon name={displayVolume === 0 ? "volume-low" : "volume"} size={19} /></button>
               {isVolumeOpen && (
                 <div className="apple-volume-popover">
                   <label htmlFor="apple-volume-range">Volume</label>
@@ -925,7 +1317,7 @@ export function BrowseShell({
                 </div>
               )}
             </div>
-            <button type="button" className="apple-icon-button" aria-label="Open immersive player" onClick={onOpenImmersive}><Icon name="expand" size={18} /></button>
+            <button type="button" className="apple-icon-button" aria-label="Open immersive player" onClick={onOpenImmersive}><Icon name="expand" size={19} /></button>
           </div>
         </div>
         <div className="apple-player-progress">

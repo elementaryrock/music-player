@@ -31,6 +31,15 @@ export interface ITunesSong {
   primaryGenreName?: string;
   country?: string;
   kind?: string;
+  /** Collection/album identifiers used to enumerate every track of an album. */
+  collectionId?: number;
+  collectionArtistName?: string;
+  collectionExplicit?: string;
+  trackCount?: number;
+  trackNumber?: number;
+  discNumber?: number;
+  wrapperType?: string;
+  copyright?: string;
   /** Some mirrors expose an ISRC even though Apple's public response often does not. */
   isrc?: string;
   ISRC?: string;
@@ -166,7 +175,7 @@ export const upgradeITunesArtworkUrl = (url?: string): string | undefined => {
     .replace(/\/\d+x\d+(?=\.(?:jpg|jpeg|png)(?:$|\?))/i, "/1000x1000");
 };
 
-const isExplicit = (song: ITunesSong): boolean | undefined => {
+export const isExplicit = (song: ITunesSong): boolean | undefined => {
   const value = song.trackExplicitness ?? song.explicitness;
   if (typeof value !== "string") return undefined;
   if (value.toLowerCase() === "explicit") return true;
@@ -246,7 +255,7 @@ export const mapITunesSongToMetadata = (
   };
 };
 
-const createAbortController = (
+export const createAbortController = (
   timeoutMs: number,
   parentSignal?: AbortSignal
 ): { controller: AbortController; cleanup: () => void } => {

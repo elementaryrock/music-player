@@ -264,8 +264,8 @@ export const ImmersivePlayer = ({
             onClick={onClose}
             type="button"
           >
-            <AppleIcon name="arrow-left" size={20} />
-            <span className="apple-immersive-player__icon-button-label">Back</span>
+            <AppleIcon name="arrow-left" size={18} strokeWidth={1.8} className="apple-immersive-back-chip" />
+            <span className="apple-immersive-back-label">Back</span>
           </button>
           <div className="apple-immersive-player__topbar-label">
             <span>Now playing</span>

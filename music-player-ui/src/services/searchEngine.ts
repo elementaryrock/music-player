@@ -7,6 +7,7 @@
 
 import { searchSongs as searchJioSaavn } from './api';
 import { getCanonicalQueryHint, searchITunesSongs } from './itunesApi';
+import { normalizeSearchText } from './textNormalization';
 import type {
   AudioCandidate,
   DiscoveryProvider,
@@ -79,15 +80,7 @@ interface CacheEntry {
 }
 
 /** Normalize text for search keys without discarding version labels. */
-export const normalizeSearchText = (value: unknown): string =>
-  (typeof value === 'string' ? value : value == null ? '' : String(value))
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[’'`]/g, '')
-    .replace(/[^a-z0-9]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+export { normalizeSearchText };
 
 export const normalizeTitle = normalizeSearchText;
 export const normalizeArtist = normalizeSearchText;

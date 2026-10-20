@@ -25,7 +25,7 @@ interface AppleIconProps {
 }
 
 const iconPaths: Record<AppleIconName, ReactNode> = {
-  "arrow-left": <path d="m14.5 5-7 7 7 7M7.75 12h12.5" />,
+  "arrow-left": <path d="M19.5 12H4.5M10.8 5.5 4.3 12l6.5 6.5" />,
   "chevron-down": <path d="m5 8 7 8 7-8" />,
   close: <path d="m6 6 12 12M18 6 6 18" />,
   heart: (

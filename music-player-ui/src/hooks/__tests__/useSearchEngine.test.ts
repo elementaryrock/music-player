@@ -96,7 +96,7 @@ describe('useSearchEngine', () => {
     });
 
     expect(mockSearchEngine.search).toHaveBeenCalledWith('test query', {
-      sources: ['jiosaavn', 'tidal'],
+      sources: ['tidal', 'itunes', 'jiosaavn'],
       maxResults: 20,
       forceRefresh: false,
     });

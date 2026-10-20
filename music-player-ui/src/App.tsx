@@ -8,7 +8,6 @@ import {
   type SyntheticEvent,
 } from "react";
 import "./App.css";
-import "./background.css";
 import BrowseShell, { POPULAR_RECOMMENDATIONS } from "./components/apple/BrowseShell";
 import { ImmersivePlayer } from "./components/apple/ImmersivePlayer";
 import { LyricsDrawer } from "./components/apple/LyricsDrawer";
